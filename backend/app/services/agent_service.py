@@ -1,28 +1,37 @@
+from app.agent.graph import run_agent
 from app.schemas.query import NLQueryRequest, NLQueryResponse
+from app.services.llm_service import LLMService
+from app.services.rag_service import RagService
+from app.validator.sql_validator import SQLValidator
 
 
 class AgentService:
+    rag_service: RagService
+    llm_service: LLMService
+    validator: SQLValidator
+
+    def __init__(
+        self,
+        rag_service: RagService | None = None,
+        llm_service: LLMService | None = None,
+        validator: SQLValidator | None = None,
+    ) -> None:
+        self.rag_service = rag_service or RagService()
+        self.llm_service = llm_service or LLMService()
+        self.validator = validator or SQLValidator()
+
     def generate_sql(self, payload: NLQueryRequest) -> NLQueryResponse:
-        normalized_question = payload.question.strip().lower()
-        table_name = "orders"
-
-        if any(
-            keyword in normalized_question for keyword in ["user", "customer", "客户"]
-        ):
-            table_name = "customers"
-        elif any(
-            keyword in normalized_question
-            for keyword in ["sales", "revenue", "收入", "销售"]
-        ):
-            table_name = "sales"
-
-        sql = (
-            f"SELECT *\nFROM {table_name}\n"
-            "WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'\n"
-            "LIMIT 100;"
+        state = run_agent(
+            question=payload.question.strip(),
+            rag_service=self.rag_service,
+            llm_service=self.llm_service,
+            validator=self.validator,
         )
+
+        sql = state.get("sql") or "SELECT 1;"
         explanation = (
-            "当前是初始化阶段，接口返回的是示例 SQL 模板。"
-            "后续可以在这里接入真实的 LangGraph、Schema RAG 和执行链路。"
+            state.get("explanation") or "当前返回的是一个教学型 SQLAgent 结果。"
         )
-        return NLQueryResponse(sql=sql, explanation=explanation, status="mock")
+        status = state.get("status", "mock")
+
+        return NLQueryResponse(sql=sql, explanation=explanation, status=status)
