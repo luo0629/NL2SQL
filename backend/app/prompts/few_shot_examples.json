@@ -1,0 +1,6 @@
+[
+  {
+    "question": "近 30 天收入最高的客户是谁？",
+    "sql": "SELECT * FROM sales WHERE created_at >= CURRENT_DATE - INTERVAL '30 days' LIMIT 100;"
+  }
+]
