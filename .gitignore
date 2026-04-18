@@ -29,3 +29,8 @@ backend/.venv/
 .DS_Store
 .idea/
 .vscode/
+start-spec-workflow-dashboard.cmd
+audit.log
+.serena
+docs
+
