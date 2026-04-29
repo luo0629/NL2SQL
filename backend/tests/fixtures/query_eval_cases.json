@@ -1,0 +1,42 @@
+[
+  {
+    "id": "fallback-success",
+    "question": "近 30 天收入最高的客户是谁？",
+    "expected_status": "fallback",
+    "expected_execution_status": "success",
+    "expected_reason_code": "llm_unavailable",
+    "tags": ["fallback", "success"]
+  },
+  {
+    "id": "fallback-empty",
+    "question": "近 30 天收入最高的客户是谁？",
+    "expected_status": "fallback",
+    "expected_execution_status": "empty",
+    "expected_reason_code": "empty_result",
+    "tags": ["fallback", "empty"]
+  },
+  {
+    "id": "execution-timeout",
+    "question": "近 30 天收入最高的客户是谁？",
+    "expected_status": "error",
+    "expected_execution_status": "timeout",
+    "expected_reason_code": "db_timeout",
+    "tags": ["error", "timeout"]
+  },
+  {
+    "id": "execution-failure",
+    "question": "近 30 天收入最高的客户是谁？",
+    "expected_status": "error",
+    "expected_execution_status": "failed",
+    "expected_reason_code": "db_execution_failed",
+    "tags": ["error", "db"]
+  },
+  {
+    "id": "blocked-weak-retrieval",
+    "question": "随便查点东西",
+    "expected_status": "blocked",
+    "expected_execution_status": "not_started",
+    "expected_reason_code": "insufficient_schema_context",
+    "tags": ["blocked", "retrieval"]
+  }
+]

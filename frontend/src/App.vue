@@ -23,7 +23,7 @@ type QueryResponse = {
 
 type StatusTone = 'idle' | 'loading' | 'success' | 'error'
 
-const prompt = ref('找出近 90 天收入最高的 10 位客户。')
+const prompt = ref('')
 const sql = ref('')
 const notes = ref<string[]>([])
 const columns = ref<string[]>([])
