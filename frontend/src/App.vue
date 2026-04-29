@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
+type QueryRow = Record<string, unknown>
+
 type QueryResponse = {
   sql?: string
   notes?: string | string[]
@@ -8,6 +10,11 @@ type QueryResponse = {
   status?: string
   message?: string
   detail?: string
+  row_count?: number
+  columns?: string[]
+  rows?: QueryRow[]
+  execution_summary?: string
+  error_message?: string
   result?: {
     sql?: string
     notes?: string | string[]
@@ -19,26 +26,23 @@ type StatusTone = 'idle' | 'loading' | 'success' | 'error'
 const prompt = ref('找出近 90 天收入最高的 10 位客户。')
 const sql = ref('')
 const notes = ref<string[]>([])
+const columns = ref<string[]>([])
+const rows = ref<QueryRow[]>([])
+const executionSummary = ref('')
 const status = ref<StatusTone>('idle')
 const statusMessage = ref('等待输入。')
 const errorMessage = ref('')
 
 const loading = computed(() => status.value === 'loading')
+const visibleRowCount = computed(() => rows.value.length)
+const derivedColumns = computed(() => {
+  if (columns.value.length > 0) return columns.value
+  const firstRow = rows.value[0]
+  return firstRow ? Object.keys(firstRow) : []
+})
+const hasRenderableRows = computed(() => rows.value.length > 0 && derivedColumns.value.length > 0)
+const isIdle = computed(() => status.value === 'idle' && !sql.value && rows.value.length === 0)
 
-const capabilityCards = [
-  {
-    title: '自然语言提问',
-    text: '直接写业务问题，保留时间范围、条件和维度。',
-  },
-  {
-    title: '即时 SQL 输出',
-    text: '结果、状态和说明同屏呈现，方便快速核对。',
-  },
-  {
-    title: '轻量演示工作区',
-    text: '像看产品演示一样使用，界面干净但交互完整。',
-  },
-]
 
 function pickText(...values: unknown[]): string {
   for (const value of values) {
@@ -72,10 +76,32 @@ function extractBodyMessage(body: unknown): string {
 
   if (typeof body === 'object') {
     const record = body as Record<string, unknown>
-    return pickText(record.message, record.detail, record.error, record.title)
+    return pickText(record.message, record.detail, record.error, record.title, record.error_message)
   }
 
   return ''
+}
+
+function normalizeColumns(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => pickText(item)).filter(Boolean)
+}
+
+function normalizeRows(value: unknown): QueryRow[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is QueryRow => !!item && typeof item === 'object')
+}
+
+function renderCell(value: unknown): string {
+  if (value == null || value === '') return '—'
+
+  if (typeof value === 'object') {
+    const serialized = JSON.stringify(value)
+    return serialized.length > 120 ? `${serialized.slice(0, 117)}…` : serialized
+  }
+
+  const text = String(value)
+  return text.length > 160 ? `${text.slice(0, 157)}…` : text
 }
 
 async function readResponseBody(response: Response): Promise<unknown> {
@@ -109,6 +135,9 @@ async function handleSubmit() {
   errorMessage.value = ''
   sql.value = ''
   notes.value = []
+  columns.value = []
+  rows.value = []
+  executionSummary.value = ''
 
   try {
     const response = await fetch('/api/query', {
@@ -130,11 +159,21 @@ async function handleSubmit() {
     const generatedNotes = normalizeNotes(
       data?.notes ?? data?.result?.notes ?? [data?.explanation, data?.status ? `响应模式：${data.status}` : ''],
     )
+    const resultColumns = normalizeColumns(data?.columns)
+    const resultRows = normalizeRows(data?.rows)
+    const summary = pickText(data?.execution_summary)
 
     sql.value = generatedSql || '-- 接口未返回 SQL。'
     notes.value = generatedNotes.length > 0 ? generatedNotes : ['本次响应没有附带说明。']
+    columns.value = resultColumns
+    rows.value = resultRows
+    executionSummary.value =
+      summary ||
+      (resultRows.length > 0
+        ? `当前展示 ${resultRows.length} 行结果。`
+        : '查询执行成功，但没有返回记录。')
     status.value = 'success'
-    statusMessage.value = 'SQL 已生成。'
+    statusMessage.value = resultRows.length > 0 ? '查询结果已返回。' : '查询完成，但没有返回记录。'
   } catch (error) {
     const message = error instanceof Error ? error.message : '无法连接到查询服务。'
     status.value = 'error'
@@ -147,27 +186,18 @@ async function handleSubmit() {
 <template>
   <main class="page">
     <section class="hero" aria-labelledby="hero-title">
-      <p class="eyebrow">NL2SQL · 中文提问，直接生成 SQL</p>
-      <h1 id="hero-title">像提问一样，直接生成 SQL。</h1>
-      <p class="hero-copy">把业务问题交给模型，得到 SQL、说明和可继续调整的结果。</p>
-      <div class="hero-actions">
-        <a class="hero-button" href="#workspace">查看演示工作区</a>
-        <a class="hero-link" href="#capabilities">了解核心能力</a>
+      <div class="hero-copyblock">
+        <p class="eyebrow">NL2SQL · Query Workspace</p>
+        <h1 id="hero-title">像提问一样，直接生成 SQL。</h1>
+        <p class="hero-copy">在同一工作区里输入问题、审阅 SQL，并直接核对真实查询结果。</p>
       </div>
-      <p class="hero-footnote">同页完成查询、查看和调整，保持节奏干净利落。</p>
+      <div class="hero-actions">
+        <a class="hero-button" href="#workspace">开始查询</a>
+      </div>
     </section>
 
     <section id="workspace" class="workspace-section" aria-labelledby="workspace-title">
       <div class="workspace-frame">
-        <div class="workspace-topbar" aria-hidden="true">
-          <div class="workspace-dots">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-          <p class="workspace-topbar-label">演示工作区</p>
-        </div>
-
         <header class="workspace-header">
           <div>
             <p class="section-kicker">演示工作区</p>
@@ -181,67 +211,139 @@ async function handleSubmit() {
         </header>
 
         <div class="workspace-grid">
-          <form class="composer composer--primary" @submit.prevent="handleSubmit">
-            <label class="field" for="nl-query">
-              <span class="field-label">问题</span>
-              <textarea
-                id="nl-query"
-                v-model="prompt"
-                rows="10"
-                :disabled="loading"
-                :aria-describedby="errorMessage ? 'query-hint query-status query-error' : 'query-hint query-status'"
-                placeholder="例如：找出近 90 天收入最高的 10 位客户。"
-                @keydown.ctrl.enter.prevent="handleSubmit"
-                @keydown.meta.enter.prevent="handleSubmit"
-              />
-            </label>
+          <aside class="control-rail" aria-labelledby="composer-title">
+            <section class="composer composer--primary">
+              <header class="composer-header">
+                <div>
+                  <p class="section-kicker">查询控制</p>
+                  <h3 id="composer-title">输入问题并发起查询</h3>
+                </div>
+                <p class="composer-note">输入区现在作为控制面板存在，主空间优先让给结果工作台。</p>
+              </header>
 
-            <div class="composer-footer">
-              <p class="hint" id="query-hint">
-                按 <kbd>Ctrl</kbd> + <kbd>Enter</kbd> 或 <kbd>⌘</kbd> + <kbd>Enter</kbd> 运行。
-              </p>
+              <form class="composer-form" @submit.prevent="handleSubmit">
+                <label class="field" for="nl-query">
+                  <span class="field-label">问题</span>
+                  <textarea
+                    id="nl-query"
+                    v-model="prompt"
+                    rows="10"
+                    :disabled="loading"
+                    :aria-describedby="errorMessage ? 'query-hint query-status query-error' : 'query-hint query-status'"
+                    placeholder="例如：找出近 90 天收入最高的 10 位客户。"
+                    @keydown.ctrl.enter.prevent="handleSubmit"
+                    @keydown.meta.enter.prevent="handleSubmit"
+                  />
+                </label>
 
-              <button class="submit-button" type="submit" :disabled="loading">
-                {{ loading ? '生成中…' : '生成 SQL' }}
-              </button>
-            </div>
+                <div class="composer-footer">
+                  <p class="hint" id="query-hint">
+                    按 <kbd>Ctrl</kbd> + <kbd>Enter</kbd> 或 <kbd>⌘</kbd> + <kbd>Enter</kbd> 运行。
+                  </p>
 
-            <p v-if="errorMessage" id="query-error" class="error" role="alert">
-              {{ errorMessage }}
-            </p>
-          </form>
+                  <button class="submit-button" type="submit" :disabled="loading">
+                    {{ loading ? '生成中…' : '生成 SQL' }}
+                  </button>
+                </div>
 
-          <section class="result result--secondary" :data-state="status" aria-labelledby="result-title" :aria-busy="loading">
+                <p v-if="errorMessage" id="query-error" class="error" role="alert">
+                  {{ errorMessage }}
+                </p>
+              </form>
+            </section>
+          </aside>
+
+          <section class="result result--secondary data-workspace" :data-state="status" aria-labelledby="result-title" :aria-busy="loading">
             <div class="result-header">
               <div>
-                <p class="section-kicker">SQL 输出</p>
-                <h3 id="result-title">生成结果</h3>
+                <p class="section-kicker">结果工作台</p>
+                <h3 id="result-title">先看真实数据，再核对 SQL 与说明</h3>
               </div>
-              <p class="result-note">保持同一页内查看和调整。</p>
+              <p class="result-note">当前主面板优先服务结果核对，SQL 与说明作为辅助阅读层。</p>
             </div>
 
-            <div class="sql-card" aria-label="SQL 代码块">
-              <pre>{{ sql || '-- 生成结果会显示在这里。' }}</pre>
-            </div>
+            <section class="result-block result-block--primary" aria-labelledby="result-table-title">
+              <div class="result-block-header">
+                <div>
+                  <p class="section-kicker">查询结果</p>
+                  <h4 id="result-table-title">结果表格</h4>
+                </div>
+                <p class="result-summary">{{ executionSummary || '提交后会在这里展示执行摘要。' }}</p>
+              </div>
 
-            <div class="notes">
-              <p class="section-kicker">说明</p>
-              <ul v-if="notes.length > 0" class="notes-list">
-                <li v-for="(note, index) in notes" :key="`${index}-${note}`">{{ note }}</li>
-              </ul>
-              <p v-else class="empty-state">提交后会显示说明。</p>
+              <div class="result-meta-strip" aria-label="结果摘要信息">
+                <p class="result-summary result-summary--primary">{{ executionSummary || statusMessage }}</p>
+                <div class="meta-pills">
+                  <span class="meta-pill">{{ status === 'success' ? visibleRowCount : '—' }} 行</span>
+                  <span class="meta-pill">{{ status === 'success' ? derivedColumns.length : '—' }} 列</span>
+                </div>
+              </div>
+
+              <div v-if="status === 'loading'" class="result-loading" aria-hidden="true">
+                <span class="loading-bar"></span>
+                <span class="loading-bar loading-bar--short"></span>
+                <span class="loading-grid"></span>
+              </div>
+              <p v-else-if="status === 'error'" class="error" role="alert">{{ errorMessage || '查询执行失败。' }}</p>
+              <div v-else-if="status === 'success' && hasRenderableRows" class="dataset-block">
+                <div class="dataset-toolbar">
+                  <p class="dataset-note">当前结果以真实查询数据为主展示，可横向滚动查看更多字段。</p>
+                  <p class="dataset-meta">{{ visibleRowCount }} 行 · {{ derivedColumns.length }} 列</p>
+                </div>
+                <div class="table-shell">
+                  <table class="result-table">
+                    <thead>
+                      <tr>
+                        <th v-for="column in derivedColumns" :key="column" scope="col">{{ column }}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(row, rowIndex) in rows" :key="rowIndex">
+                        <td v-for="column in derivedColumns" :key="`${rowIndex}-${column}`" :title="renderCell(row[column])">{{ renderCell(row[column]) }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div v-else-if="status === 'success' && rows.length === 0" class="empty-state-group">
+                <p class="empty-state">查询执行成功，但没有返回记录。</p>
+                <p class="empty-hint">可以尝试缩短时间范围、放宽筛选条件，或者换一种提问方式。</p>
+              </div>
+              <div v-else-if="isIdle" class="empty-state-group">
+                <p class="empty-state">提交后会在这里展示查询结果。</p>
+                <p class="empty-hint">真实结果表格、执行摘要和状态信息会在同一块区域中返回。</p>
+              </div>
+              <div v-else class="empty-state-group">
+                <p class="empty-state">结果结构暂时不完整，已回退到安全展示模式。</p>
+                <p class="empty-hint">如果查询已成功但列信息缺失，前端会优先尝试从结果数据中推导列名。</p>
+              </div>
+            </section>
+
+            <div class="workspace-secondary-grid">
+              <section class="sql-review" aria-label="SQL 审阅区">
+                <div class="sql-review-header">
+                  <div>
+                    <p class="section-kicker">SQL 审阅</p>
+                    <h4>生成语句</h4>
+                  </div>
+                  <p class="result-summary">先看结果，再回头核对 SQL 细节。</p>
+                </div>
+                <div class="sql-card" aria-label="SQL 代码块">
+                  <pre>{{ sql || '-- 生成结果会显示在这里。' }}</pre>
+                </div>
+              </section>
+
+              <section v-if="notes.length > 0" class="notes" aria-label="结果说明区">
+                <p class="section-kicker">说明</p>
+                <ul class="notes-list">
+                  <li v-for="(note, index) in notes" :key="`${index}-${note}`">{{ note }}</li>
+                </ul>
+              </section>
             </div>
           </section>
         </div>
       </div>
     </section>
 
-    <section id="capabilities" class="capabilities" aria-label="核心能力">
-      <article v-for="card in capabilityCards" :key="card.title" class="feature-card feature-card--quiet">
-        <p class="section-kicker">核心体验</p>
-        <h3>{{ card.title }}</h3>
-        <p>{{ card.text }}</p>
-      </article>
-    </section>
   </main>
 </template>

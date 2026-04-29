@@ -1,6 +1,10 @@
 from typing import override
 
+import pytest
+
+from app.database.executor import SQLExecutor
 from app.schemas.query import NLQueryRequest
+from app.schemas.sql import SQLExecutionResult
 from app.services.agent_service import AgentService
 from app.services.llm_service import LLMService
 
@@ -11,10 +15,25 @@ class StubLLMService(LLMService):
         return None
 
 
-def test_agent_service_returns_mock_response() -> None:
-    service = AgentService(llm_service=StubLLMService())
+class StubSQLExecutor(SQLExecutor):
+    @override
+    async def execute(self, sql: str) -> SQLExecutionResult:
+        return SQLExecutionResult(
+            rows=[{"id": 1, "name": "Alice"}],
+            row_count=1,
+            columns=["id", "name"],
+            execution_summary="查询执行成功，共返回 1 行。",
+        )
 
-    response = service.generate_sql(
+
+@pytest.mark.anyio
+async def test_agent_service_returns_mock_response() -> None:
+    service = AgentService(
+        llm_service=StubLLMService(),
+        sql_executor=StubSQLExecutor(),
+    )
+
+    response = await service.generate_sql(
         NLQueryRequest(question="近 30 天收入最高的客户是谁？")
     )
 
@@ -22,3 +41,7 @@ def test_agent_service_returns_mock_response() -> None:
     assert "SELECT" in response.sql
     assert "DROP" not in response.sql
     assert response.explanation
+    assert response.rows == [{"id": 1, "name": "Alice"}]
+    assert response.row_count == 1
+    assert response.columns == ["id", "name"]
+    assert response.execution_summary == "查询执行成功，共返回 1 行。"
