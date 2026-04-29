@@ -5,6 +5,7 @@ from app.utils.exceptions import DangerousSQLError
 
 
 class SQLValidator:
+    # 明确禁止的写操作/DDL 关键词。
     FORBIDDEN_KEYWORDS: ClassVar[set[str]] = {
         "alter",
         "create",
@@ -18,10 +19,13 @@ class SQLValidator:
         "truncate",
         "update",
     }
+    # 禁止注释与多语句拼接常见模式，降低注入风险。
     FORBIDDEN_PATTERNS: ClassVar[tuple[str, ...]] = ("--", "/*", "*/")
+    # 仅允许只读前缀。
     ALLOWED_PREFIXES: ClassVar[tuple[str, ...]] = ("select", "with")
 
     def validate_read_only(self, sql: str) -> None:
+        # 校验流程：非空 -> 只读前缀 -> 禁止模式 -> 单语句 -> 禁止关键词。
         normalized_sql = sql.strip()
 
         if not normalized_sql:
@@ -35,6 +39,12 @@ class SQLValidator:
         if any(pattern in lowered_sql for pattern in self.FORBIDDEN_PATTERNS):
             raise DangerousSQLError(
                 "SQL contains forbidden comment or chaining patterns."
+            )
+
+        # Stability guard: LIMIT queries without ORDER BY are structurally unstable.
+        if "limit" in lowered_sql and "order by" not in lowered_sql:
+            raise DangerousSQLError(
+                "LIMIT queries must include an explicit ORDER BY for stable results."
             )
 
         if ";" in normalized_sql[:-1] or normalized_sql.count(";") > 1:

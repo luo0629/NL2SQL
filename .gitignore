@@ -33,4 +33,6 @@ start-spec-workflow-dashboard.cmd
 audit.log
 .serena
 docs
-
+.claude
+.cursor
+CLAUDE.md

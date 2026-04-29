@@ -1,6 +1,22 @@
 [
   {
     "question": "近 30 天收入最高的客户是谁？",
-    "sql": "SELECT * FROM sales WHERE created_at >= CURRENT_DATE - INTERVAL '30 days' LIMIT 100;"
+    "sql": "SELECT customer_id, SUM(amount) AS total_revenue\nFROM sales\nWHERE created_at >= CURRENT_DATE - INTERVAL '30 days'\nGROUP BY customer_id\nORDER BY total_revenue DESC, customer_id ASC\nLIMIT 1;"
+  },
+  {
+    "question": "近 30 天收入最高的 10 个客户是谁？",
+    "sql": "SELECT customer_id, SUM(amount) AS total_revenue\nFROM sales\nWHERE created_at >= CURRENT_DATE - INTERVAL '30 days'\nGROUP BY customer_id\nORDER BY total_revenue DESC, customer_id ASC\nLIMIT 10;"
+  },
+  {
+    "question": "最近 30 天最新的 20 笔订单有哪些？",
+    "sql": "SELECT id, customer_id, total_amount, status, created_at\nFROM orders\nWHERE created_at >= CURRENT_DATE - INTERVAL '30 days'\nORDER BY created_at DESC, id DESC\nLIMIT 20;"
+  },
+  {
+    "question": "最近注册的 20 个客户是谁？",
+    "sql": "SELECT id, name, segment, created_at\nFROM customers\nORDER BY created_at DESC, id DESC\nLIMIT 20;"
+  },
+  {
+    "question": "列出最近 30 天的订单（最多 100 条）",
+    "sql": "SELECT id, customer_id, total_amount, status, created_at\nFROM orders\nWHERE created_at >= CURRENT_DATE - INTERVAL '30 days'\nORDER BY created_at DESC, id DESC\nLIMIT 100;"
   }
 ]

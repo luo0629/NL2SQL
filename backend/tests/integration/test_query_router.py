@@ -18,3 +18,7 @@ def test_query_endpoint(client: TestClient) -> None:
     assert payload["status"] == "mock"
     assert "sql" in payload
     assert "SELECT" in cast(str, payload["sql"])
+    assert payload["rows"] == [{"id": 1, "name": "mock-row"}]
+    assert payload["row_count"] == 1
+    assert payload["columns"] == ["id", "name"]
+    assert payload["execution_summary"] == "查询执行成功，共返回 1 行。"
