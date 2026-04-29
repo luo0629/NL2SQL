@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from functools import lru_cache
 from pathlib import Path
@@ -13,6 +14,9 @@ from app.services.llm_service import LLMService
 from app.services.rag_service import RagService
 from app.utils.exceptions import DangerousSQLError
 from app.validator.sql_validator import SQLValidator
+
+
+logger = logging.getLogger(__name__)
 
 
 def _infer_primary_table(question: str) -> str:
@@ -117,40 +121,114 @@ def _load_nl2sql_prompt() -> str:
 
 
 @lru_cache(maxsize=1)
-def _load_few_shot_examples() -> str:
-    """加载 few-shot examples 并格式化为 prompt 片段。"""
+def _load_few_shot_examples() -> list[dict[str, object]]:
+    """加载结构化 few-shot examples。"""
     examples_path = (
         Path(__file__).resolve().parents[1] / "prompts" / "few_shot_examples.json"
     )
     if not examples_path.exists():
-        return ""
+        return []
 
-    examples = json.loads(examples_path.read_text(encoding="utf-8"))
+    raw_examples = json.loads(examples_path.read_text(encoding="utf-8"))
+    if not isinstance(raw_examples, list):
+        return []
+
+    normalized_examples: list[dict[str, object]] = []
+    for example in raw_examples:
+        if not isinstance(example, dict):
+            continue
+
+        question = example.get("question")
+        sql = example.get("sql")
+        tags = example.get("tags", [])
+        if not isinstance(question, str) or not isinstance(sql, str):
+            continue
+
+        normalized_tags = [tag.strip().lower() for tag in tags if isinstance(tag, str) and tag.strip()]
+        normalized_examples.append(
+            {
+                "question": question.strip(),
+                "sql": sql.strip(),
+                "tags": normalized_tags,
+            }
+        )
+    return normalized_examples
+
+
+def _detect_question_tags(question: str) -> list[str]:
+    normalized_question = question.strip().lower()
+    tags: list[str] = []
+
+    if any(keyword in normalized_question for keyword in ["sum", "count", "avg", "max", "min", "总", "统计", "汇总", "平均", "收入", "销售额", "金额"]):
+        tags.append("aggregation")
+    if any(keyword in normalized_question for keyword in ["最近", "近 ", "近", "天", "周", "月", "year", "today", "yesterday", "recent", "latest", "newest"]):
+        tags.append("time-range")
+    if any(keyword in normalized_question for keyword in ["top", "最高", "最低", "排行", "排名", "前", "best", "worst"]):
+        tags.append("top-n")
+    if any(keyword in normalized_question for keyword in ["join", "关联", "同时", "以及", "和", "对应"]):
+        tags.append("join")
+    if not tags:
+        tags.append("detail")
+
+    return tags
+
+
+def _select_few_shot_examples(question: str, limit: int = 3) -> list[dict[str, object]]:
+    examples = _load_few_shot_examples()
     if not examples:
-        return ""
+        return []
 
+    question_tags = set(_detect_question_tags(question))
+    scored_examples: list[tuple[int, int, dict[str, object]]] = []
+    fallback_examples: list[dict[str, object]] = []
+
+    for index, example in enumerate(examples):
+        example_tags = {
+            tag for tag in cast(list[str], example.get("tags", []))
+        }
+        overlap = len(question_tags & example_tags)
+        if overlap > 0:
+            scored_examples.append((overlap, index, example))
+        elif "detail" in example_tags:
+            fallback_examples.append(example)
+
+    selected = [
+        example
+        for _score, _index, example in sorted(
+            scored_examples,
+            key=lambda item: (-item[0], item[1]),
+        )[:limit]
+    ]
+    if selected:
+        return selected
+    return fallback_examples[:limit]
+
+
+def _format_few_shot_examples(examples: list[dict[str, object]]) -> str:
     parts: list[str] = []
-    for i, example in enumerate(examples, 1):
-        q = example.get("question", "")
-        s = example.get("sql", "")
-        if q and s:
-            parts.append(f"Example {i}:\nQuestion: {q}\nSQL:\n{s}")
+    for index, example in enumerate(examples, 1):
+        question = cast(str, example["question"])
+        sql = cast(str, example["sql"])
+        tags = cast(list[str], example.get("tags", []))
+        tag_line = f"Tags: {', '.join(tags)}\n" if tags else ""
+        parts.append(f"Example {index}:\n{tag_line}Question: {question}\nSQL:\n{sql}")
     return "\n\n".join(parts)
 
 
 def _build_prompt(question: str, schema_context: list[str]) -> str:
     joined_schema = "\n".join(f"- {item}" for item in schema_context)
     prompt = _load_nl2sql_prompt()
-    few_shot = _load_few_shot_examples()
+    selected_examples = _select_few_shot_examples(question)
+    few_shot = _format_few_shot_examples(selected_examples)
 
-    # 基础 prompt + few-shot examples + schema context + 用户问题
     parts: list[str] = [prompt]
 
     if few_shot:
-        parts.append(f"Reference Examples (follow the same SQL style and patterns):\n{few_shot}")
+        parts.append(f"## 6. Reference examples\nUse the following examples only as style and structure references.\n\n{few_shot}")
 
-    parts.append(f"Question:\n{question}")
-    parts.append(f"Schema Context (use as the only source of truth):\n{joined_schema}")
+    parts.append(f"## 7. Schema context\nUse this as the only source of truth.\n{joined_schema}")
+    parts.append(f"## 8. User question\n{question}")
+    parts.append("## 9. Final reminder\nReturn exactly one SQL statement ending with a semicolon.")
 
     return "\n\n".join(parts)
 
@@ -165,9 +243,27 @@ def generate_sql(state: AgentState, llm_service: LLMService) -> AgentState:
     # 先尝试真实模型生成；不可用时自动回退到教学型 SQL。
     question = state.get("question", "")
     schema_context = state.get("schema_context", [])
+    question_tags = _detect_question_tags(question)
+    selected_examples = _select_few_shot_examples(question)
+    prompt = _build_prompt(question, schema_context)
     model = llm_service.build_chat_model()
 
+    logger.info(
+        "llm_generation_start tags=%s schema_items=%s few_shots=%s prompt_chars=%s",
+        question_tags,
+        len(schema_context),
+        len(selected_examples),
+        len(prompt),
+    )
+
     if model is None:
+        logger.info(
+            "llm_generation_fallback_model_unavailable tags=%s schema_items=%s few_shots=%s prompt_chars=%s",
+            question_tags,
+            len(schema_context),
+            len(selected_examples),
+            len(prompt),
+        )
         return {
             "sql": build_fallback_sql(question),
             "status": "mock",
@@ -177,11 +273,18 @@ def generate_sql(state: AgentState, llm_service: LLMService) -> AgentState:
             ),
         }
 
-    # TODO(learning): 当前 prompt 仍然非常简化，后续可以把 few-shot、业务术语和 schema RAG 拼装进来。
     try:
-        response = model.invoke(_build_prompt(question, schema_context))
+        response = model.invoke(prompt)
         content = _extract_text(
             cast(str | list[str | dict[str, str]], response.content)
+        )
+        logger.info(
+            "llm_generation_success tags=%s schema_items=%s few_shots=%s prompt_chars=%s sql_chars=%s",
+            question_tags,
+            len(schema_context),
+            len(selected_examples),
+            len(prompt),
+            len(content),
         )
         return {
             "sql": _normalize_sql(content),
@@ -189,7 +292,16 @@ def generate_sql(state: AgentState, llm_service: LLMService) -> AgentState:
             "used_fallback": False,
             "explanation": "已调用 Zhipu GLM 生成 SQL，接下来会进入只读安全校验。",
         }
-    except Exception:
+    except Exception as error:
+        logger.warning(
+            "llm_generation_fallback_provider_error tags=%s schema_items=%s few_shots=%s prompt_chars=%s error_type=%s error=%s",
+            question_tags,
+            len(schema_context),
+            len(selected_examples),
+            len(prompt),
+            error.__class__.__name__,
+            error,
+        )
         return {
             "sql": build_fallback_sql(question),
             "status": "mock",

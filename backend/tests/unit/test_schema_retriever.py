@@ -59,3 +59,36 @@ def test_schema_retriever_falls_back_when_question_is_unclear() -> None:
 
     assert len(context) >= 1
     assert context[0].startswith("table ")
+
+
+def test_schema_retriever_matches_column_description_terms() -> None:
+    retriever = SchemaRetriever(build_catalog())
+
+    context = retriever.search("查询起售状态的订单")
+
+    joined = "\n".join(context)
+    assert "table orders" in joined
+    assert "desc: 1=起售,0=停售" in joined
+
+
+
+def test_schema_retriever_expands_related_tables_for_join_context() -> None:
+    retriever = SchemaRetriever(build_catalog())
+
+    context = retriever.search("查询订单状态")
+
+    joined = "\n".join(context)
+    assert "table orders" in joined
+    assert "table user" in joined
+    assert "orders.user_id -> user.id" in joined
+
+
+
+def test_schema_retriever_keeps_table_output_order_stable() -> None:
+    retriever = SchemaRetriever(build_catalog())
+
+    context = retriever.search("查询用户和订单信息")
+
+    table_blocks = [item for item in context if item.startswith("table ")]
+    assert table_blocks[0].startswith("table orders")
+    assert table_blocks[1].startswith("table user")

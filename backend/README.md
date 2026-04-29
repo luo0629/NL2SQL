@@ -7,6 +7,7 @@ The backend now follows a layered `app/` layout for configuration, routers, sche
 ## Current learning-friendly SQLAgent mode
 
 - Default mode is `mock`, so the backend can run without a real model key.
+- If you set `LLM_PROVIDER=xiaomi` and provide `XIAOMI_API_KEY`, the project will try to call Xiaomi MiMo through the OpenAI-compatible endpoint.
 - If you set `LLM_PROVIDER=zhipu` and provide `ZHIPU_API_KEY`, the project will try to call GLM through the OpenAI-compatible endpoint.
 - All generated SQL goes through a read-only validator before it is returned.
 - Real database execution is still intentionally kept out of the first learning phase.
