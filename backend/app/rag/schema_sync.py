@@ -41,11 +41,35 @@ RELATION_HINTS: list[tuple[str, str, str, str, str | None]] = [
 ]
 
 
-def _build_search_terms(table_name: str, column_names: list[str]) -> list[str]:
-    terms = {table_name, table_name.lower(), table_name.replace("_", " ")}
-    terms.update(column_names)
-    terms.update(column.replace("_", " ") for column in column_names)
-    return sorted(term for term in terms if term)
+def _add_search_variants(terms: set[str], value: str | None) -> None:
+    text = (value or "").strip()
+    if not text:
+        return
+
+    normalized = text.lower()
+    variants = {
+        text,
+        normalized,
+        text.replace("_", " "),
+        normalized.replace("_", " "),
+    }
+    terms.update(item.strip() for item in variants if item.strip())
+
+
+def _build_search_terms(
+    table_name: str,
+    table_description: str | None,
+    columns: list[SchemaColumn],
+) -> list[str]:
+    terms: set[str] = set()
+    _add_search_variants(terms, table_name)
+    _add_search_variants(terms, table_description)
+
+    for column in columns:
+        _add_search_variants(terms, column.name)
+        _add_search_variants(terms, column.description)
+
+    return sorted(terms)
 
 
 async def sync_schema_metadata() -> SchemaCatalog:
@@ -165,7 +189,8 @@ async def sync_schema_metadata() -> SchemaCatalog:
                 primary_keys=primary_keys,
                 searchable_terms=_build_search_terms(
                     table_name,
-                    [column.name for column in columns],
+                    TABLE_DESCRIPTIONS.get(table_name),
+                    columns,
                 ),
             )
         )
