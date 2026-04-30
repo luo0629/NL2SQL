@@ -3,6 +3,12 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 
 from app.database.engine import engine
+from app.rag.schema_enrichment import (
+    get_column_enrichment,
+    get_relation_enrichment,
+    get_table_enrichment,
+    load_schema_enrichment,
+)
 from app.rag.schema_models import SchemaCatalog, SchemaColumn, SchemaRelation, SchemaTable
 from app.rag.value_mapping_loader import (
     get_fallback_mapping_for_column,
@@ -59,20 +65,33 @@ def _add_search_variants(terms: set[str], value: str | None) -> None:
 def _build_search_terms(
     table_name: str,
     table_description: str | None,
+    table_aliases: list[str],
+    table_business_terms: list[str],
     columns: list[SchemaColumn],
 ) -> list[str]:
     terms: set[str] = set()
     _add_search_variants(terms, table_name)
     _add_search_variants(terms, table_description)
 
+    for alias in table_aliases:
+        _add_search_variants(terms, alias)
+
+    for term in table_business_terms:
+        _add_search_variants(terms, term)
+
     for column in columns:
         _add_search_variants(terms, column.name)
         _add_search_variants(terms, column.description)
+        for business_term in column.business_terms:
+            _add_search_variants(terms, business_term)
+        _add_search_variants(terms, column.semantic_role)
 
     return sorted(terms)
 
 
 async def sync_schema_metadata() -> SchemaCatalog:
+    enrichment = load_schema_enrichment()
+
     async with engine.connect() as connection:
         database_name = connection.engine.url.database or "unknown"
         driver_name = (connection.engine.url.drivername or "").lower()
@@ -163,6 +182,11 @@ async def sync_schema_metadata() -> SchemaCatalog:
                 table_name=table_name,
                 column_name=column_name,
             )
+            column_enrichment = get_column_enrichment(
+                enrichment,
+                table_name=table_name,
+                column_name=column_name,
+            )
             column = SchemaColumn(
                 name=column_name,
                 data_type=data_type,
@@ -172,6 +196,8 @@ async def sync_schema_metadata() -> SchemaCatalog:
                     db_description=comment_value,
                     fallback_mapping=fallback_mapping,
                 ),
+                business_terms=column_enrichment.business_terms,
+                semantic_role=column_enrichment.semantic_role,
             )
             columns_by_table.setdefault(table_name, []).append(column)
             if is_primary_key:
@@ -181,32 +207,49 @@ async def sync_schema_metadata() -> SchemaCatalog:
     for table_name in table_names:
         columns = columns_by_table.get(table_name, [])
         primary_keys = primary_keys_by_table.get(table_name, [])
+        table_enrichment = get_table_enrichment(enrichment, table_name)
+        table_description = TABLE_DESCRIPTIONS.get(table_name)
         tables.append(
             SchemaTable(
                 name=table_name,
-                description=TABLE_DESCRIPTIONS.get(table_name),
+                description=table_description,
+                aliases=table_enrichment.aliases,
+                business_terms=table_enrichment.business_terms,
                 columns=columns,
                 primary_keys=primary_keys,
                 searchable_terms=_build_search_terms(
                     table_name,
-                    TABLE_DESCRIPTIONS.get(table_name),
+                    table_description,
+                    table_enrichment.aliases,
+                    table_enrichment.business_terms,
                     columns,
                 ),
             )
         )
 
     table_name_set = {table.name for table in tables}
-    relations = [
-        SchemaRelation(
+    relations = []
+    for from_table, from_column, to_table, to_column, relation_type in RELATION_HINTS:
+        if from_table not in table_name_set or to_table not in table_name_set:
+            continue
+        relation_enrichment = get_relation_enrichment(
+            enrichment,
             from_table=from_table,
             from_column=from_column,
             to_table=to_table,
             to_column=to_column,
-            relation_type=relation_type,
         )
-        for from_table, from_column, to_table, to_column, relation_type in RELATION_HINTS
-        if from_table in table_name_set and to_table in table_name_set
-    ]
+        relations.append(
+            SchemaRelation(
+                from_table=from_table,
+                from_column=from_column,
+                to_table=to_table,
+                to_column=to_column,
+                relation_type=relation_type,
+                confidence=relation_enrichment.confidence,
+                join_hint=relation_enrichment.join_hint,
+            )
+        )
 
     return SchemaCatalog(
         database=database_name,

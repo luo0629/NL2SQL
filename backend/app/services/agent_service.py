@@ -55,6 +55,7 @@ class AgentService:
 
         response = NLQueryResponse(
             sql=sql,
+            params=state.get("sql_params", []),
             explanation=explanation,
             status=status,
             rows=state.get("rows", []),
@@ -63,6 +64,7 @@ class AgentService:
             execution_summary=execution_summary,
             error_message=error_message,
             execution_time_ms=state.get("execution_time_ms"),
+            debug=state.get("debug_trace"),
         )
         logger.info(
             "query_response_summary status=%s used_fallback=%s row_count=%s execution_time_ms=%s",

@@ -44,7 +44,7 @@ async def test_rag_service_schema_catalog_is_cached(monkeypatch: pytest.MonkeyPa
 
     service = RagService()
     await service.retrieve_relevant_schema("查询起售的菜品")
-    await service.retrieve_relevant_schema("查询停售的菜品")
+    await service.build_query_schema_plan("查询停售的菜品")
 
     assert calls["count"] == 1
 

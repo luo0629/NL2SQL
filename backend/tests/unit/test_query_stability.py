@@ -45,11 +45,26 @@ def test_build_prompt_uses_stable_section_order() -> None:
     prompt = _build_prompt(
         "近 30 天收入最高的 10 个客户是谁？",
         ["table sales\n- customer_id: bigint, required\n- amount: decimal, required\n- created_at: timestamp, required"],
+        business_semantic_brief={
+            "prompt_block": "## Business semantic brief\nQuestion: 近 30 天收入最高的 10 个客户是谁？\nEntities: sales\nKey fields: sales.customer_id, sales.amount\nMetrics: sales.amount\nFilters: sales.created_at\nJoin plan: 主表: sales。\nUncertainties: 无\nConstraints: 优先使用系统提供的候选表、候选字段和连表路径。"
+        },
+        join_path_plan={
+            "plan_confidence": "high",
+            "planning_summary": "主表: sales。连表覆盖: sales。规划置信度: high。",
+        },
+        schema_linking={
+            "linking_summary": "命中表: sales。",
+            "matched_tables": [{"table_name": "sales"}],
+        },
     )
 
     assert "## 6. Reference examples" in prompt
+    assert "## Business semantic brief" in prompt
+    assert "## Schema linking plan" in prompt
+    assert "## Join path plan" in prompt
     assert "## 7. Schema context" in prompt
     assert "## 8. User question" in prompt
+    assert prompt.index("## Join path plan") < prompt.index("## 7. Schema context")
     assert prompt.index("## 7. Schema context") < prompt.index("## 8. User question")
 
 

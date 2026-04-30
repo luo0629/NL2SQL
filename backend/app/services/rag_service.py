@@ -4,9 +4,11 @@ import asyncio
 import time
 
 from app.config import get_settings
+from app.rag.join_path_planner import JoinPathPlanner
 from app.rag.retriever import SchemaRetriever
 from app.rag.schema_models import SchemaCatalog
 from app.rag.schema_sync import sync_schema_metadata
+from app.rag.semantic_brief import BusinessSemanticBriefBuilder, QuerySchemaPlan
 
 
 _catalog_cache: SchemaCatalog | None = None
@@ -40,7 +42,24 @@ async def _get_schema_catalog() -> SchemaCatalog:
 
 
 class RagService:
-    async def retrieve_relevant_schema(self, question: str) -> list[str]:
+    async def build_query_schema_plan(self, question: str) -> QuerySchemaPlan:
         catalog = await _get_schema_catalog()
         retriever = SchemaRetriever(catalog)
-        return retriever.search(question)
+        linking_result = retriever.link(question)
+        join_path_plan = JoinPathPlanner().plan(linking_result, catalog)
+        business_semantic_brief = BusinessSemanticBriefBuilder().build(
+            question,
+            linking_result,
+            join_path_plan,
+        )
+        schema_context = retriever.render_linking_result(linking_result)
+        return QuerySchemaPlan(
+            schema_context=schema_context,
+            schema_linking=linking_result,
+            join_path_plan=join_path_plan,
+            business_semantic_brief=business_semantic_brief,
+        )
+
+    async def retrieve_relevant_schema(self, question: str) -> list[str]:
+        plan = await self.build_query_schema_plan(question)
+        return plan.schema_context
