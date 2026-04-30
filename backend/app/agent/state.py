@@ -4,10 +4,30 @@ from typing import Any, Literal, TypedDict
 class AgentState(TypedDict, total=False):
     # 用户输入问题
     question: str
+    # Query Understanding 阶段输出
+    query_understanding: dict[str, Any]
     # RAG 或规则检索出的 schema 摘要
     schema_context: list[str]
+    # RAG 返回的结构化 schema plan
+    query_schema_plan: dict[str, Any]
+    # 结构化 schema linking 结果
+    schema_linking: dict[str, Any]
+    # Value Linking 阶段输出
+    value_links: list[dict[str, Any]]
+    # 连表规划结果
+    join_path_plan: dict[str, Any]
+    # 业务语义说明
+    business_semantic_brief: dict[str, Any]
+    # schema linking 阶段摘要
+    linking_summary: str
+    # join planning 阶段摘要
+    join_planning_summary: str
+    # 结构化 SQL Plan
+    sql_plan: dict[str, Any]
     # 最终（或中间）SQL
     sql: str
+    # 参数化 SQL 的参数列表
+    sql_params: list[Any]
     # 面向前端展示的解释文本
     explanation: str
     # ready=真实模型路径，mock=回退路径, error=执行失败
@@ -16,6 +36,12 @@ class AgentState(TypedDict, total=False):
     used_fallback: bool
     # 安全校验错误列表
     validation_errors: list[str]
+    # 结构化校验问题
+    validation_issues: list[dict[str, Any]]
+    # SQL Plan 修复尝试次数
+    repair_attempts: int
+    # 开发调试追踪信息
+    debug_trace: dict[str, Any]
     # 执行结果摘要
     execution_summary: str
     # 查询结果行数据

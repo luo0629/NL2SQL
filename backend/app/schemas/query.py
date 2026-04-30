@@ -11,6 +11,8 @@ class NLQueryRequest(BaseModel):
 class NLQueryResponse(BaseModel):
     # 生成出的 SQL 语句
     sql: str
+    # 参数化 SQL 的参数列表
+    params: list[object] = Field(default_factory=list)
     # 对 SQL 结果来源与处理过程的说明
     explanation: str
     # ready=真实模型生成，mock=回退策略生成, error=执行失败
@@ -27,3 +29,5 @@ class NLQueryResponse(BaseModel):
     error_message: str | None = None
     # 执行耗时（毫秒）
     execution_time_ms: float | None = None
+    # 开发调试追踪信息
+    debug: dict[str, object] | None = None

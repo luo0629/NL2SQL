@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from functools import lru_cache
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from app.agent.state import AgentState
 from app.config import get_settings
@@ -173,6 +174,71 @@ def _detect_question_tags(question: str) -> list[str]:
     return tags
 
 
+def query_understanding(state: AgentState) -> AgentState:
+    question = state.get("question", "").strip()
+    normalized_question = question.lower()
+    tags = _detect_question_tags(question)
+
+    intent = "aggregate" if "aggregation" in tags else "select"
+    target_mentions: list[str] = []
+    condition_mentions: list[dict[str, object]] = []
+    value_mentions: list[str] = []
+
+    business_terms = [
+        "客户",
+        "用户",
+        "订单",
+        "下单",
+        "状态",
+        "分类",
+        "菜品",
+        "口味",
+        "价格",
+        "销售额",
+        "金额",
+    ]
+    for term in business_terms:
+        if term in question:
+            target_mentions.append(term)
+
+    condition_markers = ["状态", "分类", "口味", "价格", "金额", "时间"]
+    for marker in condition_markers:
+        if marker in question:
+            condition_mentions.append({"mention": marker})
+
+    quoted_values = re.findall(r"[“\"']([^”\"']+)[”\"']", question)
+    value_mentions.extend(quoted_values)
+    if "甜" in question and "甜" not in value_mentions:
+        value_mentions.append("甜")
+
+    limit: int | None = None
+    limit_match = re.search(r"(?:top\s*|前\s*)(\d+)", normalized_question)
+    if limit_match:
+        limit = int(limit_match.group(1))
+
+    order_by: list[dict[str, object]] = []
+    if any(keyword in normalized_question for keyword in ["最高", "最多", "top", "desc"]):
+        order_by.append({"direction": "DESC"})
+    elif any(keyword in normalized_question for keyword in ["最低", "最少", "asc"]):
+        order_by.append({"direction": "ASC"})
+
+    query_understanding_result = {
+        "intent": intent,
+        "target_mentions": target_mentions,
+        "condition_mentions": condition_mentions,
+        "value_mentions": value_mentions,
+        "aggregation": {"type": "auto"} if "aggregation" in tags else None,
+        "group_by": [],
+        "order_by": order_by,
+        "limit": limit,
+        "time_range": {"type": "relative"} if "time-range" in tags else None,
+        "requires_join_hint": "join" in tags,
+        "tags": tags,
+    }
+
+    return {"query_understanding": query_understanding_result}
+
+
 def _select_few_shot_examples(question: str, limit: int = 3) -> list[dict[str, object]]:
     examples = _load_few_shot_examples()
     if not examples:
@@ -215,7 +281,13 @@ def _format_few_shot_examples(examples: list[dict[str, object]]) -> str:
     return "\n\n".join(parts)
 
 
-def _build_prompt(question: str, schema_context: list[str]) -> str:
+def _build_prompt(
+    question: str,
+    schema_context: list[str],
+    business_semantic_brief: dict[str, Any] | None = None,
+    join_path_plan: dict[str, Any] | None = None,
+    schema_linking: dict[str, Any] | None = None,
+) -> str:
     joined_schema = "\n".join(f"- {item}" for item in schema_context)
     prompt = _load_nl2sql_prompt()
     selected_examples = _select_few_shot_examples(question)
@@ -226,6 +298,36 @@ def _build_prompt(question: str, schema_context: list[str]) -> str:
     if few_shot:
         parts.append(f"## 6. Reference examples\nUse the following examples only as style and structure references.\n\n{few_shot}")
 
+    if business_semantic_brief:
+        prompt_block = cast(str, business_semantic_brief.get("prompt_block", "")).strip()
+        if prompt_block:
+            parts.append(prompt_block)
+
+    if schema_linking:
+        linking_summary = cast(str, schema_linking.get("linking_summary", "")).strip()
+        matched_tables = cast(list[dict[str, Any]], schema_linking.get("matched_tables", []))
+        table_summary = ", ".join(
+            cast(str, table.get("table_name", ""))
+            for table in matched_tables[:6]
+            if table.get("table_name")
+        )
+        lines = ["## Schema linking plan"]
+        if linking_summary:
+            lines.append(f"Summary: {linking_summary}")
+        if table_summary:
+            lines.append(f"Matched tables: {table_summary}")
+        parts.append("\n".join(lines))
+
+    if join_path_plan:
+        planning_summary = cast(str, join_path_plan.get("planning_summary", "")).strip()
+        plan_confidence = cast(str, join_path_plan.get("plan_confidence", "")).strip()
+        lines = ["## Join path plan"]
+        if plan_confidence:
+            lines.append(f"Confidence: {plan_confidence}")
+        if planning_summary:
+            lines.append(f"Summary: {planning_summary}")
+        parts.append("\n".join(lines))
+
     parts.append(f"## 7. Schema context\nUse this as the only source of truth.\n{joined_schema}")
     parts.append(f"## 8. User question\n{question}")
     parts.append("## 9. Final reminder\nReturn exactly one SQL statement ending with a semicolon.")
@@ -234,18 +336,130 @@ def _build_prompt(question: str, schema_context: list[str]) -> str:
 
 
 async def retrieve_schema(state: AgentState, rag_service: RagService) -> AgentState:
-    # 从状态中取问题，补充与问题相关的 schema 上下文。
+    # 从状态中取问题，补充与问题相关的 schema 上下文和结构化 schema plan。
     question = state.get("question", "")
-    return {"schema_context": await rag_service.retrieve_relevant_schema(question)}
+    query_schema_plan = (await rag_service.build_query_schema_plan(question)).model_dump()
+    return {
+        "query_schema_plan": query_schema_plan,
+        "schema_context": cast(list[str], query_schema_plan.get("schema_context", [])),
+    }
+
+
+def schema_linking(state: AgentState) -> AgentState:
+    # 从 query schema plan 中取出结构化 schema linking 结果并铺平到 state。
+    query_schema_plan = state.get("query_schema_plan", {})
+    schema_linking_result = cast(dict[str, Any], query_schema_plan.get("schema_linking", {}))
+    return {
+        "schema_linking": schema_linking_result,
+        "linking_summary": cast(str, schema_linking_result.get("linking_summary", "")),
+    }
+
+
+def value_linking(state: AgentState) -> AgentState:
+    schema_linking_result = state.get("schema_linking", {})
+    query_understanding_result = state.get("query_understanding", {})
+    value_mentions = cast(list[str], query_understanding_result.get("value_mentions", []))
+    linked_tables = schema_linking_result.get("linked_tables", [])
+    primary_table = linked_tables[0].get("name") if linked_tables else None
+
+    value_links = [
+        {
+            "mention": mention,
+            "field_mention": None,
+            "table": primary_table,
+            "column": None,
+            "db_value": mention,
+            "confidence": 0.5,
+            "match_type": "typed_literal",
+            "source": "literal",
+        }
+        for mention in value_mentions
+    ]
+
+    return {"value_links": value_links}
+
+
+def join_path_planning(state: AgentState) -> AgentState:
+    # 从 query schema plan 中取出 join path planning 结果并铺平到 state。
+    query_schema_plan = state.get("query_schema_plan", {})
+    join_path_plan_result = cast(dict[str, Any], query_schema_plan.get("join_path_plan", {}))
+    return {
+        "join_path_plan": join_path_plan_result,
+        "join_planning_summary": cast(str, join_path_plan_result.get("planning_summary", "")),
+    }
+
+
+def build_semantic_brief(state: AgentState) -> AgentState:
+    # 从 query schema plan 中取出业务语义说明并铺平到 state。
+    query_schema_plan = state.get("query_schema_plan", {})
+    business_semantic_brief_result = cast(
+        dict[str, Any],
+        query_schema_plan.get("business_semantic_brief", {}),
+    )
+    return {"business_semantic_brief": business_semantic_brief_result}
+
+
+def sql_planning(state: AgentState) -> AgentState:
+    schema_linking_result = state.get("schema_linking", {})
+    join_path_plan = state.get("join_path_plan", {})
+    query_understanding_result = state.get("query_understanding", {})
+    linked_tables = schema_linking_result.get("linked_tables", [])
+    from_table = linked_tables[0].get("name") if linked_tables else None
+
+    sql_plan = {
+        "select": [],
+        "from_table": from_table,
+        "joins": join_path_plan.get("join_edges", []),
+        "where": [],
+        "group_by": [],
+        "having": [],
+        "order_by": query_understanding_result.get("order_by", []),
+        "limit": query_understanding_result.get("limit"),
+        "distinct": bool(join_path_plan.get("requires_distinct", False)),
+        "params": [],
+        "provenance": {
+            "schema_linking": bool(schema_linking_result),
+            "value_linking": bool(state.get("value_links", [])),
+            "join_path_planning": bool(join_path_plan),
+        },
+    }
+
+    return {"sql_plan": sql_plan, "sql_params": sql_plan["params"]}
+
+
+def sql_repairing(state: AgentState) -> AgentState:
+    retry_count = state.get("retry_count", 0) + 1
+    repair_attempts = state.get("repair_attempts", 0) + 1
+    debug_trace = dict(state.get("debug_trace", {}))
+    debug_trace["last_repair"] = {
+        "attempt": repair_attempts,
+        "validation_errors": state.get("validation_errors", []),
+        "validation_issues": state.get("validation_issues", []),
+    }
+
+    return {
+        "retry_count": retry_count,
+        "repair_attempts": repair_attempts,
+        "debug_trace": debug_trace,
+    }
 
 
 def generate_sql(state: AgentState, llm_service: LLMService) -> AgentState:
     # 先尝试真实模型生成；不可用时自动回退到教学型 SQL。
     question = state.get("question", "")
     schema_context = state.get("schema_context", [])
+    business_semantic_brief = cast(dict[str, Any], state.get("business_semantic_brief", {}))
+    join_path_plan = cast(dict[str, Any], state.get("join_path_plan", {}))
+    schema_linking_result = cast(dict[str, Any], state.get("schema_linking", {}))
     question_tags = _detect_question_tags(question)
     selected_examples = _select_few_shot_examples(question)
-    prompt = _build_prompt(question, schema_context)
+    prompt = _build_prompt(
+        question,
+        schema_context,
+        business_semantic_brief=business_semantic_brief,
+        join_path_plan=join_path_plan,
+        schema_linking=schema_linking_result,
+    )
     model = llm_service.build_chat_model()
 
     logger.info(
@@ -374,7 +588,10 @@ def finalize_response(state: AgentState) -> AgentState:
     # 汇总说明文本，附加 schema 使用情况与最近一次校验信息。
     explanation = state.get("explanation", "当前返回的是教学型 SQL 结果。")
     schema_context = state.get("schema_context", [])
+    linking_summary = state.get("linking_summary", "")
+    join_planning_summary = state.get("join_planning_summary", "")
     validation_errors = state.get("validation_errors", [])
+    validation_issues = state.get("validation_issues", [])
     execution_time_ms = state.get("execution_time_ms")
 
     if schema_context:
@@ -382,10 +599,37 @@ def finalize_response(state: AgentState) -> AgentState:
             f"{explanation} 当前参考的 schema 摘要数量：{len(schema_context)}。"
         )
 
+    if linking_summary:
+        explanation = f"{explanation} Schema linking：{linking_summary}"
+
+    if join_planning_summary:
+        explanation = f"{explanation} Join planning：{join_planning_summary}"
+
     if validation_errors:
         explanation = f"{explanation} 最近一次校验问题：{validation_errors[0]}"
 
     if execution_time_ms is not None:
         explanation = f"{explanation} 执行耗时：{execution_time_ms:.0f}ms。"
 
-    return {"explanation": explanation}
+    debug_trace = dict(state.get("debug_trace", {}))
+    debug_trace.update(
+        {
+            "query_understanding": state.get("query_understanding", {}),
+            "schema_links": state.get("schema_linking", {}),
+            "value_links": state.get("value_links", []),
+            "join_paths": state.get("join_path_plan", {}),
+            "sql_plan": state.get("sql_plan", {}),
+            "validation_errors": validation_errors,
+            "validation_issues": validation_issues,
+            "fallback": {"used": state.get("used_fallback", False)},
+            "execution": {
+                "row_count": state.get("row_count", 0),
+                "truncated": state.get("truncated", False),
+                "execution_time_ms": execution_time_ms,
+            },
+            "schema_context_count": len(schema_context),
+            "confidence": state.get("join_path_plan", {}).get("confidence", 0.0),
+        }
+    )
+
+    return {"explanation": explanation, "debug_trace": debug_trace}
