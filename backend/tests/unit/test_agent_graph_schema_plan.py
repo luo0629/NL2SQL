@@ -1,7 +1,7 @@
 import pytest
 
 from app.agent.graph import reset_agent_graph, run_agent
-from app.agent.nodes import query_understanding
+from app.agent.nodes import _build_sql_plan_prompt, query_understanding
 from app.database.executor import SQLExecutor
 from app.rag.schema_models import SchemaCatalog, SchemaColumn, SchemaTable
 from app.schemas.sql import SQLExecutionResult
@@ -145,12 +145,13 @@ def test_query_understanding_extracts_stable_intent_fields() -> None:
 
     understanding = state["query_understanding"]
 
-    assert understanding["intent"] == "aggregate"
+    assert understanding["intent"] == "ranking"
     assert "菜品" in understanding["target_mentions"]
     assert "口味" in understanding["target_mentions"]
     assert understanding["limit"] == 5
-    assert understanding["order_by"] == [{"direction": "DESC"}]
-    assert understanding["time_range"] == {"type": "relative"}
+    assert understanding["order_by"] == [{"term": "销售额", "direction": "DESC"}]
+    assert understanding["time_range"] == {"type": "relative", "amount": 1, "unit": "月"}
+    assert understanding["metrics"][0]["aggregation"] == "SUM"
     assert understanding["requires_join_hint"] is True
 
 
@@ -181,3 +182,24 @@ async def test_agent_graph_prefers_llm_sql_plan_when_available() -> None:
     assert state["sql_plan"]["from_table"] == "dish"
     assert state["sql_plan"]["limit"] == 3
     assert state["sql_plan"]["provenance"]["from_table"] == "schema_linking"
+
+
+def test_sql_plan_prompt_includes_semantic_brief_and_few_shot_context() -> None:
+    prompt = _build_sql_plan_prompt(
+        question="统计各分类商品数量",
+        schema_context=["Table category: 分类", "Table dish: 菜品"],
+        query_understanding={"intent": "aggregate", "dimensions": ["分类"]},
+        schema_linking={"linking_summary": "matched category and dish"},
+        value_links=[{"mention": "起售", "table": "dish", "column": "status", "db_value": "1"}],
+        join_path_plan={"planning_summary": "dish.category_id -> category.id"},
+        fallback_plan={"from_table": "dish", "select": []},
+        business_semantic_brief={"prompt_block": "Use category as the grouping dimension."},
+        few_shot_examples=[{"question": "统计各分类菜品数", "sql": "SELECT category_id, COUNT(*) FROM dish GROUP BY category_id;"}],
+    )
+
+    assert "Business semantic brief" in prompt
+    assert "Use category as the grouping dimension." in prompt
+    assert "Few-shot examples" in prompt
+    assert "统计各分类菜品数" in prompt
+    assert "dish.category_id -> category.id" in prompt
+    assert "起售" in prompt

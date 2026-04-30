@@ -46,7 +46,7 @@ def _detect_tags(question: str) -> set[str]:
 
     join_keywords = [
         "join", "关联", "同时", "以及", "和", "对应",
-        "属于", "包含", "有哪些", "对应的是", "相关的",
+        "属于", "包含", "对应的是", "相关的",
         "一起", "连同", "带上", "附带",
     ]
     if any(kw in normalized for kw in join_keywords):

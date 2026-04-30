@@ -105,6 +105,23 @@ def test_schema_retriever_expands_related_tables_for_join_context() -> None:
     assert "orders.user_id -> user.id" in joined
 
 
+def test_schema_retriever_does_not_expand_related_tables_without_join_hint() -> None:
+    retriever = SchemaRetriever(build_catalog())
+
+    result = retriever.link(
+        "查询订单状态",
+        query_understanding={
+            "target_mentions": ["订单"],
+            "condition_mentions": [{"mention": "状态"}],
+            "requires_join_hint": False,
+        },
+    )
+
+    table_names = [table.table_name for table in result.matched_tables]
+    assert table_names == ["orders"]
+    assert result.matched_relations == []
+
+
 
 def test_schema_retriever_keeps_table_output_order_stable() -> None:
     retriever = SchemaRetriever(build_catalog())

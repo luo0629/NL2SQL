@@ -24,11 +24,12 @@ class StubSQLExecutor(SQLExecutor):
         max_rows: int | None = None,
         timeout_seconds: float | None = None,
     ) -> SQLExecutionResult:
+        rows = [{"sql": sql, "params": list(params or [])}]
         return SQLExecutionResult(
-            rows=[{"id": 1, "name": "Alice"}],
-            row_count=1,
-            columns=["id", "name"],
-            execution_summary="查询执行成功，共返回 1 行。",
+            rows=rows,
+            row_count=len(rows),
+            columns=["sql", "params"],
+            execution_summary=f"查询执行成功，共返回 {len(rows)} 行。",
         )
 
 
@@ -47,9 +48,9 @@ async def test_agent_service_returns_mock_response() -> None:
     assert "SELECT" in response.sql
     assert "DROP" not in response.sql
     assert response.explanation
-    assert response.rows == [{"id": 1, "name": "Alice"}]
+    assert response.rows == [{"sql": response.sql, "params": response.params}]
     assert response.row_count == 1
-    assert response.columns == ["id", "name"]
+    assert response.columns == ["sql", "params"]
     assert response.execution_summary == "查询执行成功，共返回 1 行。"
     assert response.debug is not None
     assert "query_understanding" in response.debug

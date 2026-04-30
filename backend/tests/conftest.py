@@ -27,11 +27,12 @@ class StubSQLExecutor(SQLExecutor):
         max_rows: int | None = None,
         timeout_seconds: float | None = None,
     ) -> SQLExecutionResult:
+        rows = [{"sql": sql, "params": list(params or [])}]
         return SQLExecutionResult(
-            rows=[{"id": 1, "name": "mock-row"}],
-            row_count=1,
-            columns=["id", "name"],
-            execution_summary="查询执行成功，共返回 1 行。",
+            rows=rows,
+            row_count=len(rows),
+            columns=["sql", "params"],
+            execution_summary=f"查询执行成功，共返回 {len(rows)} 行。",
         )
 
 

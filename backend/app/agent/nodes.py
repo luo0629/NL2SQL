@@ -253,49 +253,106 @@ def _fallback_query_understanding(question: str, catalog: SchemaCatalog | None =
     normalized_question = question.lower()
     tags = _detect_question_tags(question)
 
-    intent = "aggregate" if "aggregation" in tags else "select"
+    metric_rules = [
+        ("COUNT", ["多少", "数量", "个数", "条数", "几个", "几条", "count"]),
+        ("SUM", ["总额", "合计", "销售额", "收入", "金额", "销量", "sum", "total"]),
+        ("AVG", ["平均", "均值", "avg"]),
+        ("MAX", ["最大", "最高", "最多", "max"]),
+        ("MIN", ["最小", "最低", "最少", "min"]),
+    ]
+    dimension_terms = ["门店", "店铺", "分类", "类别", "客户", "用户", "商品", "菜品", "套餐", "地区", "城市", "渠道", "日期", "月份", "年份"]
+    status_terms = ["起售", "停售", "在售", "上架", "下架", "启用", "禁用", "有效", "无效", "已支付", "未支付", "已完成", "已取消"]
+
+    metrics: list[dict[str, object]] = []
+    for aggregation_type, keywords in metric_rules:
+        for keyword in keywords:
+            if keyword in normalized_question:
+                metrics.append({"term": keyword, "aggregation": aggregation_type})
+                break
+
+    aggregation = {"type": metrics[0]["aggregation"], "metrics": metrics} if metrics else ({"type": "auto", "metrics": []} if "aggregation" in tags else None)
+    intent = "ranking" if "top-n" in tags else ("aggregate" if aggregation else "select")
+
     target_mentions: list[str] = []
     condition_mentions: list[dict[str, object]] = []
     value_mentions: list[str] = []
+    value_terms: list[str] = []
+    dimensions: list[str] = []
+    filters: list[dict[str, object]] = []
 
     catalog_business_terms, catalog_condition_markers = _extract_catalog_business_terms(catalog)
     if not catalog_business_terms:
-        catalog_business_terms = ["客户", "用户", "订单", "状态", "分类", "价格", "金额"]
+        catalog_business_terms = ["客户", "用户", "订单", "商品", "菜品", "状态", "分类", "价格", "金额", "时间"]
     if not catalog_condition_markers:
         catalog_condition_markers = ["状态", "分类", "价格", "金额", "时间"]
 
     for term in catalog_business_terms:
-        if term in question:
+        if term in question and term not in target_mentions:
             target_mentions.append(term)
 
     for marker in catalog_condition_markers:
         if marker in question:
             condition_mentions.append({"mention": marker})
+            filters.append({"term": marker, "operator": None, "value": None})
 
-    quoted_values = re.findall(r"[“”‘’\"']([^[“”‘’\"']+)[“”‘’\"']", question)
-    value_mentions.extend(quoted_values)
+    for term in status_terms:
+        if term in question:
+            value_terms.append(term)
+            value_mentions.append(term)
+            if not any(item.get("mention") == "状态" for item in condition_mentions):
+                condition_mentions.append({"mention": "状态"})
+            filters.append({"term": "状态", "operator": "=", "value": term})
+
+    for dimension in dimension_terms:
+        if re.search(rf"(?:各|每个?|按|分)\s*{re.escape(dimension)}", question) or f"{dimension}维度" in question:
+            dimensions.append(dimension)
+
+    quoted_values = re.findall(r"[“”‘’\"']([^“”‘’\"']+)[“”‘’\"']", question)
+    value_mentions.extend(value for value in quoted_values if value not in value_mentions)
 
     limit: int | None = None
     limit_match = re.search(r"(?:top\s*|前\s*)(\d+)", normalized_question)
     if limit_match:
         limit = int(limit_match.group(1))
+    else:
+        chinese_limit_map = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+        chinese_limit_match = re.search(r"前\s*([一二两三四五六七八九十])", question)
+        if chinese_limit_match:
+            limit = chinese_limit_map[chinese_limit_match.group(1)]
 
     order_by: list[dict[str, object]] = []
-    if any(keyword in normalized_question for keyword in ["最高", "最多", "top", "desc", "最贵", "最热门"]):
-        order_by.append({"direction": "DESC"})
-    elif any(keyword in normalized_question for keyword in ["最低", "最少", "asc", "最便宜"]):
-        order_by.append({"direction": "ASC"})
+    sort: dict[str, object] | None = None
+    if any(keyword in normalized_question for keyword in ["最高", "最多", "top", "desc", "最贵", "最热门", "最好", "最受欢迎", "最畅销"]):
+        sort = {"term": metrics[0]["term"] if metrics else None, "direction": "DESC"}
+        order_by.append({"term": sort["term"], "direction": "DESC"})
+    elif any(keyword in normalized_question for keyword in ["最低", "最少", "asc", "最便宜", "最差"]):
+        sort = {"term": metrics[0]["term"] if metrics else None, "direction": "ASC"}
+        order_by.append({"term": sort["term"], "direction": "ASC"})
+
+    time_range: dict[str, object] | None = None
+    relative_time_match = re.search(r"(?:最近|近)\s*(\d+)\s*(天|日|周|月|年)", question)
+    if relative_time_match:
+        time_range = {"type": "relative", "amount": int(relative_time_match.group(1)), "unit": relative_time_match.group(2)}
+    elif "最近一个月" in question or "近一个月" in question:
+        time_range = {"type": "relative", "amount": 1, "unit": "月"}
+    elif "time-range" in tags:
+        time_range = {"type": "relative"}
 
     return {
         "intent": intent,
         "target_mentions": target_mentions,
         "condition_mentions": condition_mentions,
         "value_mentions": value_mentions,
-        "aggregation": {"type": "auto"} if "aggregation" in tags else None,
-        "group_by": [],
+        "value_terms": value_terms,
+        "metrics": metrics,
+        "dimensions": dimensions,
+        "filters": filters,
+        "aggregation": aggregation,
+        "group_by": [{"term": dimension} for dimension in dimensions],
         "order_by": order_by,
+        "sort": sort,
         "limit": limit,
-        "time_range": {"type": "relative"} if "time-range" in tags else None,
+        "time_range": time_range,
         "requires_join_hint": "join" in tags,
         "tags": tags,
         "source": "deterministic",
@@ -334,6 +391,8 @@ def _normalize_query_understanding_payload(
                     normalized_item["table"] = str(item["table"])
                 if item.get("column"):
                     normalized_item["column"] = str(item["column"])
+                if item.get("term"):
+                    normalized_item["term"] = str(item["term"])
                 direction = str(item.get("direction") or "ASC").upper()
                 normalized_item["direction"] = "DESC" if direction == "DESC" else "ASC"
                 order_by.append(normalized_item)
@@ -346,6 +405,11 @@ def _normalize_query_understanding_payload(
     result["time_range"] = payload.get("time_range", fallback.get("time_range"))
     result["requires_join_hint"] = bool(payload.get("requires_join_hint", fallback.get("requires_join_hint", False)))
     result["ambiguities"] = payload.get("ambiguities", []) if isinstance(payload.get("ambiguities", []), list) else []
+    for key in ["value_terms", "metrics", "dimensions", "filters"]:
+        value = payload.get(key, fallback.get(key, []))
+        result[key] = value if isinstance(value, list) else []
+    sort = payload.get("sort", fallback.get("sort"))
+    result["sort"] = sort if isinstance(sort, dict) else None
     result["question"] = question
     result["source"] = "llm"
     result["tags"] = fallback.get("tags", [])
@@ -483,12 +547,21 @@ def _build_sql_plan_prompt(
     value_links: list[dict[str, Any]],
     join_path_plan: dict[str, Any],
     fallback_plan: dict[str, Any],
+    business_semantic_brief: dict[str, Any] | None = None,
+    few_shot_examples: list[dict[str, object]] | None = None,
 ) -> str:
-    return "\n".join([
+    semantic_prompt_block = ""
+    if business_semantic_brief:
+        semantic_prompt_block = cast(str, business_semantic_brief.get("prompt_block", "")).strip()
+    few_shot_block = _format_few_shot_examples(few_shot_examples or [])
+
+    parts = [
         "You are a SQL planner for an NL2SQL agent.",
         "Return only one JSON object representing a SQL plan, not SQL text.",
         "Use only tables, columns, joins and values that already appear in the provided context.",
         "Do not invent tables, columns, values, or joins.",
+        "Prefer value links for WHERE conditions and join path plan for JOINs.",
+        "Use the business semantic brief and examples only to choose intent, metrics, dimensions, and ordering.",
         "Keys: from_table, select, group_by, order_by, limit, distinct.",
         "select items should be objects with table and column.",
         "group_by items should be objects with table and column.",
@@ -499,8 +572,13 @@ def _build_sql_plan_prompt(
         f"Schema linking: {json.dumps(schema_linking, ensure_ascii=False)}",
         f"Value links: {json.dumps(value_links, ensure_ascii=False)}",
         f"Join path plan: {json.dumps(join_path_plan, ensure_ascii=False)}",
-        f"Deterministic fallback SQL plan: {json.dumps(fallback_plan, ensure_ascii=False)}",
-    ])
+    ]
+    if semantic_prompt_block:
+        parts.append(f"Business semantic brief: {semantic_prompt_block}")
+    if few_shot_block:
+        parts.append(f"Few-shot examples: {few_shot_block}")
+    parts.append(f"Deterministic fallback SQL plan: {json.dumps(fallback_plan, ensure_ascii=False)}")
+    return "\n".join(parts)
 
 
 def _build_sql_repair_prompt(
@@ -628,7 +706,7 @@ def _detect_question_tags(question: str) -> list[str]:
         # 中文技术术语
         "关联", "同时", "以及", "和", "对应",
         # 中文口语化关联表达
-        "属于", "包含", "有哪些", "对应的是", "相关的",
+        "属于", "包含", "对应的是", "相关的",
         "一起", "连同", "带上", "附带",
     ]
     if any(keyword in normalized_question for keyword in join_keywords):
@@ -789,12 +867,13 @@ def schema_linking(state: AgentState) -> AgentState:
     }
 
 
-def value_linking(state: AgentState) -> AgentState:
+def value_linking(state: AgentState, catalog: SchemaCatalog | None = None) -> AgentState:
     query_understanding_result = state.get("query_understanding", {})
     schema_linking_result = state.get("schema_linking", {})
     value_linking_result = ValueLinker().link(
         cast(dict[str, Any], query_understanding_result),
         cast(dict[str, Any], schema_linking_result),
+        catalog,
     )
 
     return {"value_links": [link.model_dump() for link in value_linking_result.value_links]}
@@ -820,11 +899,14 @@ def build_semantic_brief(state: AgentState) -> AgentState:
     return {"business_semantic_brief": business_semantic_brief_result}
 
 
-def sql_planning(state: AgentState, llm_service: LLMService) -> AgentState:
+def sql_planning(state: AgentState, llm_service: LLMService, catalog: SchemaCatalog | None = None) -> AgentState:
+    from app.rag.few_shot_manager import FewShotManager
+
     query_understanding = cast(dict[str, Any], state.get("query_understanding", {}))
     schema_linking = cast(dict[str, Any], state.get("schema_linking", {}))
     value_links = cast(list[dict[str, Any]], state.get("value_links", []))
     join_path_plan = cast(dict[str, Any], state.get("join_path_plan", {}))
+    business_semantic_brief = cast(dict[str, Any], state.get("business_semantic_brief", {}))
     fallback_plan = SQLPlanner().build(
         query_understanding=query_understanding,
         schema_linking=schema_linking,
@@ -836,6 +918,7 @@ def sql_planning(state: AgentState, llm_service: LLMService) -> AgentState:
     if model is None:
         return {"sql_plan": fallback_plan, "sql_params": cast(list[object], fallback_plan.get("params", []))}
 
+    few_shot_examples = FewShotManager(catalog).select_examples(cast(str, state.get("question", "")))
     payload = _invoke_model_json(
         model,
         _build_sql_plan_prompt(
@@ -846,6 +929,8 @@ def sql_planning(state: AgentState, llm_service: LLMService) -> AgentState:
             value_links,
             join_path_plan,
             fallback_plan,
+            business_semantic_brief,
+            few_shot_examples,
         ),
     )
     if payload is None:
@@ -1070,15 +1155,24 @@ def finalize_response(state: AgentState) -> AgentState:
         explanation = f"{explanation} 执行耗时：{execution_time_ms:.0f}ms。"
 
     debug_trace = dict(state.get("debug_trace", {}))
+    last_repair = debug_trace.get("last_repair")
+    repair_attempt_trace = [last_repair] if isinstance(last_repair, dict) else []
+    schema_linking_debug = state.get("schema_linking", {})
+    join_path_debug = state.get("join_path_plan", {})
     debug_trace.update(
         {
             "query_understanding": state.get("query_understanding", {}),
-            "schema_links": state.get("schema_linking", {}),
+            "schema_linking": schema_linking_debug,
+            "schema_links": schema_linking_debug,
             "value_links": state.get("value_links", []),
-            "join_paths": state.get("join_path_plan", {}),
+            "join_path_plan": join_path_debug,
+            "join_paths": join_path_debug,
+            "semantic_brief": state.get("business_semantic_brief", {}),
             "sql_plan": state.get("sql_plan", {}),
+            "validation": {"errors": validation_errors, "issues": validation_issues},
             "validation_errors": validation_errors,
             "validation_issues": validation_issues,
+            "repair_attempts": repair_attempt_trace,
             "fallback": {"used": state.get("used_fallback", False)},
             "execution": {
                 "row_count": state.get("row_count", 0),
@@ -1087,7 +1181,7 @@ def finalize_response(state: AgentState) -> AgentState:
                 "summary": execution_summary,
             },
             "schema_context_count": len(schema_context),
-            "confidence": state.get("join_path_plan", {}).get("confidence", 0.0),
+            "confidence": join_path_debug.get("confidence", 0.0),
         }
     )
 

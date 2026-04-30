@@ -19,10 +19,12 @@ class SQLGenerator:
         from_clause = f"FROM {from_table}"
         join_clause = self._render_joins(sql_plan.get("joins", []))
         where_clause = self._render_where(sql_plan.get("where", []))
+        group_by_clause = self._render_group_by(sql_plan.get("group_by", []))
+        having_clause = self._render_having(sql_plan.get("having", []))
         order_clause = self._render_order_by(sql_plan.get("order_by", []))
         limit_clause = self._render_limit(sql_plan.get("limit"))
 
-        parts = [select_clause, from_clause, join_clause, where_clause, order_clause, limit_clause]
+        parts = [select_clause, from_clause, join_clause, where_clause, group_by_clause, having_clause, order_clause, limit_clause]
         sql = "\n".join(part for part in parts if part).strip()
         return SQLGenerationResult(sql=f"{sql};", params=list(sql_plan.get("params", [])))
 
@@ -30,14 +32,22 @@ class SQLGenerator:
         distinct = "DISTINCT " if sql_plan.get("distinct") else ""
         select_items = []
         for item in sql_plan.get("select", []):
+            expression = item.get("expression")
+            alias = item.get("alias")
+            if expression:
+                rendered = str(expression)
+                if alias:
+                    rendered = f"{rendered} AS {alias}"
+                select_items.append(rendered)
+                continue
             table = item.get("table")
             column = item.get("column")
             if not column:
                 continue
-            if column == "*" or not table:
-                select_items.append(str(column))
-            else:
-                select_items.append(f"{table}.{column}")
+            rendered = str(column) if column == "*" or not table else f"{table}.{column}"
+            if alias:
+                rendered = f"{rendered} AS {alias}"
+            select_items.append(rendered)
         if not select_items:
             select_items.append("*")
         return f"SELECT {distinct}{', '.join(select_items)}"
@@ -69,15 +79,44 @@ class SQLGenerator:
             return ""
         return f"WHERE {' AND '.join(predicates)}"
 
+    def _render_group_by(self, group_by: list[dict[str, Any]]) -> str:
+        items: list[str] = []
+        for item in group_by:
+            expression = item.get("expression")
+            table = item.get("table")
+            column = item.get("column")
+            if expression:
+                items.append(str(expression))
+            elif table and column:
+                items.append(f"{table}.{column}")
+        if not items:
+            return ""
+        return f"GROUP BY {', '.join(items)}"
+
+    def _render_having(self, having: list[dict[str, Any]]) -> str:
+        predicates: list[str] = []
+        for clause in having:
+            expression = clause.get("expression")
+            operator = clause.get("operator", "=")
+            if not expression:
+                continue
+            predicates.append(f"{expression} {operator} :p{clause.get('param_index', len(predicates))}")
+        if not predicates:
+            return ""
+        return f"HAVING {' AND '.join(predicates)}"
+
     def _render_order_by(self, order_by: list[dict[str, Any]]) -> str:
         items: list[str] = []
         for item in order_by:
+            expression = item.get("expression")
             table = item.get("table")
             column = item.get("column")
             direction = str(item.get("direction", "ASC")).upper()
             if direction not in {"ASC", "DESC"}:
                 direction = "ASC"
-            if table and column:
+            if expression:
+                items.append(f"{expression} {direction}")
+            elif table and column:
                 items.append(f"{table}.{column} {direction}")
         if not items:
             return ""

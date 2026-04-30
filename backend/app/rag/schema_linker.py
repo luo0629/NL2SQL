@@ -58,7 +58,8 @@ class SchemaLinker:
         if not primary_table_names:
             return self._fallback_linking_result(question)
 
-        selected_table_names = self._expand_related_table_names(primary_table_names, ranked_tables)
+        allow_related_expansion = query_understanding is None or bool(query_understanding.get("requires_join_hint"))
+        selected_table_names = self._expand_related_table_names(primary_table_names, ranked_tables, allow_related_expansion=allow_related_expansion)
         linked_tables = [
             self._build_linked_table(
                 self._table_lookup[table_name],
@@ -121,8 +122,13 @@ class SchemaLinker:
         self,
         primary_table_names: list[str],
         ranked_tables: list[tuple[SchemaTable, int]],
+        *,
+        allow_related_expansion: bool = True,
     ) -> list[str]:
         selected_table_names = list(primary_table_names)
+        if not allow_related_expansion:
+            return sorted(selected_table_names)
+
         selected_name_set = set(selected_table_names)
         score_lookup = self._score_lookup(ranked_tables)
 

@@ -76,6 +76,11 @@ class TestDetectQuestionTags:
         assert "join" in _detect_question_tags("菜品包含哪些口味")
         assert "join" in _detect_question_tags("订单和对应的用户信息")
 
+    def test_plain_listing_question_is_not_join(self):
+        tags = _detect_question_tags("有哪些菜品")
+
+        assert "join" not in tags
+
     def test_join_technical(self):
         assert "join" in _detect_question_tags("关联查询订单和用户")
         assert "join" in _detect_question_tags("同时查看菜品和分类")
@@ -201,3 +206,26 @@ class TestFallbackQueryUnderstanding:
         catalog = _make_catalog()
         result = _fallback_query_understanding("最近的订单", catalog)
         assert result["time_range"] is not None
+
+    def test_colloquial_ranking_semantics(self):
+        result = _fallback_query_understanding("最近一个月各门店销售额最高的前10个")
+
+        assert result["intent"] == "ranking"
+        assert result["limit"] == 10
+        assert result["time_range"] == {"type": "relative", "amount": 1, "unit": "月"}
+        assert result["metrics"][0]["aggregation"] == "SUM"
+        assert "门店" in result["dimensions"]
+        assert result["sort"]["direction"] == "DESC"
+
+    def test_status_value_terms_feed_value_linking(self):
+        result = _fallback_query_understanding("查询起售商品")
+
+        assert "起售" in result["value_terms"]
+        assert "起售" in result["value_mentions"]
+        assert any(item["mention"] == "状态" for item in result["condition_mentions"])
+        assert any(item["value"] == "起售" for item in result["filters"])
+
+    def test_chinese_limit_detection(self):
+        result = _fallback_query_understanding("销售额最高的前十个菜品")
+
+        assert result["limit"] == 10
