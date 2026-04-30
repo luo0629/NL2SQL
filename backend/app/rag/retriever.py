@@ -8,8 +8,8 @@ class SchemaRetriever:
         self.linker = SchemaLinker(catalog)
         self._table_lookup = {table.name: table for table in catalog.tables}
 
-    def link(self, question: str) -> SchemaLinkingResult:
-        return self.linker.link(question)
+    def link(self, question: str, query_understanding: dict[str, object] | None = None) -> SchemaLinkingResult:
+        return self.linker.link(question, query_understanding=query_understanding)
 
     def search(self, question: str) -> list[str]:
         return self.render_linking_result(self.link(question))

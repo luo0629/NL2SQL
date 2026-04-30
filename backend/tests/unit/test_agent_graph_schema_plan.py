@@ -3,6 +3,7 @@ import pytest
 from app.agent.graph import reset_agent_graph, run_agent
 from app.agent.nodes import query_understanding
 from app.database.executor import SQLExecutor
+from app.rag.schema_models import SchemaCatalog, SchemaColumn, SchemaTable
 from app.schemas.sql import SQLExecutionResult
 from app.services.llm_service import LLMService
 from app.services.rag_service import RagService
@@ -10,7 +11,7 @@ from app.validator.sql_validator import SQLValidator
 
 
 class StubRagService(RagService):
-    async def build_query_schema_plan(self, question: str):
+    async def build_query_schema_plan(self, question: str, query_understanding: dict[str, object] | None = None, refresh_schema: bool = False):
         plan = await super().build_query_schema_plan(question)
         return plan
 
@@ -20,8 +21,30 @@ class StubLLMService(LLMService):
         return None
 
 
+class FakeStructuredModel:
+    def invoke(self, prompt: str):
+        class Response:
+            def __init__(self, content: str):
+                self.content = content
+
+        if "query-understanding planner" in prompt:
+            return Response('{"intent":"aggregate","target_mentions":["菜品"],"condition_mentions":[{"mention":"状态"}],"value_mentions":["起售"],"order_by":[{"table":"dish","column":"name","direction":"DESC"}],"limit":3,"requires_join_hint":false}')
+        return Response('{"from_table":"dish","select":[{"table":"dish","column":"name"}],"order_by":[{"table":"dish","column":"name","direction":"DESC"}],"limit":3}')
+
+
+class FakeLLMService(LLMService):
+    def build_chat_model(self):
+        return FakeStructuredModel()
+
+
 class StubSQLExecutor(SQLExecutor):
-    async def execute(self, sql: str) -> SQLExecutionResult:
+    async def execute(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        max_rows: int | None = None,
+        timeout_seconds: float | None = None,
+    ) -> SQLExecutionResult:
         return SQLExecutionResult(
             rows=[{"id": 1, "name": "Alice"}],
             row_count=1,
@@ -32,7 +55,7 @@ class StubSQLExecutor(SQLExecutor):
 
 
 class WeakPlanRagService(RagService):
-    async def build_query_schema_plan(self, question: str):
+    async def build_query_schema_plan(self, question: str, query_understanding: dict[str, object] | None = None, refresh_schema: bool = False):
         plan = await super().build_query_schema_plan(question)
         plan.join_path_plan.plan_confidence = "none"
         plan.join_path_plan.unresolved_tables = ["category"]
@@ -85,8 +108,40 @@ async def test_agent_graph_keeps_uncertain_join_plan_visible_in_state() -> None:
     assert "Join planning：" in state["explanation"]
 
 
+def _make_dish_catalog() -> SchemaCatalog:
+    return SchemaCatalog(
+        database="test_db",
+        tables=[
+            SchemaTable(
+                name="dish",
+                description="菜品表",
+                aliases=["菜品", "商品"],
+                business_terms=["菜"],
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="name", data_type="VARCHAR", nullable=True, business_terms=["菜品名称"], semantic_role="dimension"),
+                    SchemaColumn(name="price", data_type="DECIMAL", nullable=False, business_terms=["价格", "售价", "销售额"], semantic_role="metric"),
+                    SchemaColumn(name="created_at", data_type="TIMESTAMP", nullable=True, semantic_role="timestamp"),
+                ],
+            ),
+            SchemaTable(
+                name="flavor",
+                description="口味表",
+                aliases=["口味", "味道"],
+                business_terms=["风味"],
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="name", data_type="VARCHAR", nullable=True, business_terms=["口味名称"], semantic_role="dimension"),
+                    SchemaColumn(name="dish_id", data_type="INTEGER", nullable=False, semantic_role="foreign_key"),
+                ],
+            ),
+        ],
+    )
+
+
 def test_query_understanding_extracts_stable_intent_fields() -> None:
-    state = query_understanding({"question": "查询最近一个月销售额最高的前5个菜品和口味"})
+    catalog = _make_dish_catalog()
+    state = query_understanding({"question": "查询最近一个月销售额最高的前5个菜品和口味"}, StubLLMService(), catalog)
 
     understanding = state["query_understanding"]
 
@@ -97,3 +152,32 @@ def test_query_understanding_extracts_stable_intent_fields() -> None:
     assert understanding["order_by"] == [{"direction": "DESC"}]
     assert understanding["time_range"] == {"type": "relative"}
     assert understanding["requires_join_hint"] is True
+
+
+def test_query_understanding_uses_llm_when_available() -> None:
+    state = query_understanding({"question": "查询起售菜品前三名"}, FakeLLMService())
+
+    understanding = state["query_understanding"]
+
+    assert understanding["source"] == "llm"
+    assert understanding["limit"] == 3
+    assert understanding["value_mentions"] == ["起售"]
+    assert understanding["order_by"] == [{"table": "dish", "column": "name", "direction": "DESC"}]
+
+
+@pytest.mark.anyio
+async def test_agent_graph_prefers_llm_sql_plan_when_available() -> None:
+    reset_agent_graph()
+
+    state = await run_agent(
+        question="查询起售菜品前三名",
+        rag_service=StubRagService(),
+        llm_service=FakeLLMService(),
+        validator=SQLValidator(),
+        executor=StubSQLExecutor(),
+    )
+
+    assert state["query_understanding"]["source"] == "llm"
+    assert state["sql_plan"]["from_table"] == "dish"
+    assert state["sql_plan"]["limit"] == 3
+    assert state["sql_plan"]["provenance"]["from_table"] == "schema_linking"

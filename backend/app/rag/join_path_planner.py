@@ -16,6 +16,7 @@ class JoinEdge(BaseModel):
     relation_type: str | None = None
     join_hint: str | None = None
     confidence: str | None = None
+    source: str = "schema_relation"
 
 
 class JoinPathPlan(BaseModel):
@@ -24,6 +25,8 @@ class JoinPathPlan(BaseModel):
     edges: list[JoinEdge] = Field(default_factory=list)
     plan_confidence: str = "none"
     unresolved_tables: list[str] = Field(default_factory=list)
+    ambiguous_paths: list[str] = Field(default_factory=list)
+    requires_distinct: bool = False
     planning_summary: str = ""
 
 
@@ -42,6 +45,7 @@ class JoinPathPlanner:
 
         primary_table = self._select_primary_table(linking_result)
         selected_relations = self._prioritize_relations(linking_result.matched_relations)
+        ambiguous_paths = self._find_ambiguous_paths(selected_relations)
         graph = self._build_relation_graph(selected_relations)
         edges_by_key = self._build_edge_lookup(selected_relations)
 
@@ -78,12 +82,15 @@ class JoinPathPlanner:
             table_name for table_name in linked_table_names if table_name != primary_table and table_name in resolved_tables
         ]
         plan_confidence = self._determine_plan_confidence(plan_edges, unresolved_tables)
+        requires_distinct = self._requires_distinct(plan_edges)
         planning_summary = self._build_planning_summary(
             primary_table=primary_table,
             tables_in_plan=tables_in_plan,
             plan_edges=plan_edges,
             unresolved_tables=unresolved_tables,
             plan_confidence=plan_confidence,
+            ambiguous_paths=ambiguous_paths,
+            requires_distinct=requires_distinct,
         )
 
         return JoinPathPlan(
@@ -92,6 +99,8 @@ class JoinPathPlanner:
             edges=plan_edges,
             plan_confidence=plan_confidence,
             unresolved_tables=unresolved_tables,
+            ambiguous_paths=ambiguous_paths,
+            requires_distinct=requires_distinct,
             planning_summary=planning_summary,
         )
 
@@ -114,6 +123,20 @@ class JoinPathPlanner:
                 relation.to_column,
             ),
         )
+
+    def _find_ambiguous_paths(self, relations: list[SchemaRelation]) -> list[str]:
+        relation_counts: dict[tuple[str, str], int] = {}
+        for relation in relations:
+            key = tuple(sorted([relation.from_table, relation.to_table]))
+            relation_counts[key] = relation_counts.get(key, 0) + 1
+        return [
+            f"{left}<->{right}"
+            for (left, right), count in sorted(relation_counts.items())
+            if count > 1
+        ]
+
+    def _requires_distinct(self, plan_edges: list[JoinEdge]) -> bool:
+        return any(edge.relation_type == "one-to-many" for edge in plan_edges)
 
     def _build_relation_graph(
         self,
@@ -173,6 +196,7 @@ class JoinPathPlanner:
             relation_type=relation.relation_type,
             join_hint=relation.join_hint,
             confidence=relation.confidence,
+            source="schema_relation",
         )
 
     def _reverse_relation_to_join_edge(self, relation: SchemaRelation) -> JoinEdge:
@@ -184,6 +208,7 @@ class JoinPathPlanner:
             relation_type=relation.relation_type,
             join_hint=relation.join_hint,
             confidence=relation.confidence,
+            source="schema_relation",
         )
 
     def _determine_plan_confidence(
@@ -209,6 +234,8 @@ class JoinPathPlanner:
         plan_edges: list[JoinEdge],
         unresolved_tables: list[str],
         plan_confidence: str,
+        ambiguous_paths: list[str],
+        requires_distinct: bool,
     ) -> str:
         summary = f"主表: {primary_table}。"
         if tables_in_plan:
@@ -219,6 +246,10 @@ class JoinPathPlanner:
                 for edge in plan_edges
             )
             summary = f"{summary} 路径: {edge_summary}。"
+        if ambiguous_paths:
+            summary = f"{summary} 存在候选歧义路径: {', '.join(ambiguous_paths)}。"
         if unresolved_tables:
             summary = f"{summary} 未解决表: {', '.join(unresolved_tables)}。"
+        if requires_distinct:
+            summary = f"{summary} 一对多路径可能重复主表记录，建议去重。"
         return f"{summary} 规划置信度: {plan_confidence}。"

@@ -12,6 +12,11 @@ from app.agent.state import AgentState
 from app.config import get_settings
 from app.database.executor import SQLExecutor
 from app.services.llm_service import LLMService
+from app.rag.schema_models import SchemaCatalog
+from app.rag.sql_generator import SQLGenerator
+from app.rag.sql_planner import SQLPlanner
+from app.rag.sql_repairer import SQLRepairer
+from app.rag.value_linker import ValueLinker
 from app.services.rag_service import RagService
 from app.utils.exceptions import DangerousSQLError
 from app.validator.sql_validator import SQLValidator
@@ -20,64 +25,141 @@ from app.validator.sql_validator import SQLValidator
 logger = logging.getLogger(__name__)
 
 
-def _infer_primary_table(question: str) -> str:
-    # 极简关键词路由：用于 fallback 模式下决定优先查询哪张表。
+def _infer_primary_table(question: str, catalog: SchemaCatalog | None = None) -> str | None:
+    """从 schema catalog 中动态匹配最相关的表。无 catalog 时返回 None。"""
+    if not catalog or not catalog.tables:
+        return None
+
     normalized_question = question.strip().lower()
+    if not normalized_question:
+        return catalog.tables[0].name if catalog.tables else None
 
-    if any(
-        keyword in normalized_question
-        for keyword in ["sales", "revenue", "收入", "销售"]
-    ):
-        return "sales"
+    best_table = None
+    best_score = 0
 
-    if any(
-        keyword in normalized_question
-        for keyword in ["customer", "user", "客户", "用户"]
-    ):
-        return "customers"
+    for table in catalog.tables:
+        score = 0
+        table_name_lower = table.name.lower()
+        description_lower = (table.description or "").lower()
+        alias_terms = {alias.lower().strip() for alias in table.aliases if alias.strip()}
+        business_terms = {term.lower().strip() for term in table.business_terms if term.strip()}
 
-    return "orders"
+        # 表名直接匹配
+        if table_name_lower in normalized_question:
+            score += 10
+
+        # 描述匹配
+        if description_lower and description_lower in normalized_question:
+            score += 6
+
+        # 别名匹配
+        for alias in alias_terms:
+            if alias and alias in normalized_question:
+                score += 5
+
+        # 业务术语匹配
+        for term in business_terms:
+            if term and term in normalized_question:
+                score += 5
+
+        # 列级匹配加分
+        for column in table.columns:
+            col_desc_lower = (column.description or "").lower()
+            for bt in column.business_terms:
+                if bt.lower().strip() and bt.lower().strip() in normalized_question:
+                    score += 2
+            if col_desc_lower and col_desc_lower in normalized_question:
+                score += 2
+
+        if score > best_score:
+            best_score = score
+            best_table = table.name
+
+    return best_table
 
 
-def build_fallback_sql(question: str) -> str:
-    # 当模型不可用或生成失败时，返回可稳定演示的只读 SQL 模板。
-    table_name = _infer_primary_table(question)
-    driver_name = (get_settings().database_url or "").lower()
+def _find_time_column(table) -> str | None:
+    """找到表中适合做时间过滤的列。"""
+    # 优先找 semantic_role 为 timestamp 的列
+    for column in table.columns:
+        if column.semantic_role == "timestamp":
+            return column.name
+    # 次优：列名包含常见时间关键词
+    time_keywords = ["time", "date", "created", "updated", "at"]
+    for column in table.columns:
+        if any(kw in column.name.lower() for kw in time_keywords):
+            return column.name
+    return None
 
-    if "mysql" in driver_name:
-        recent_filter = "created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)"
-    elif "sqlite" in driver_name:
-        recent_filter = "created_at >= date('now', '-30 day')"
-    else:
-        # Default: Postgres-like interval syntax.
-        recent_filter = "created_at >= CURRENT_DATE - INTERVAL '30 days'"
 
-    if table_name == "sales":
-        return (
-            "SELECT customer_id, SUM(amount) AS total_revenue\n"
-            "FROM sales\n"
-            f"WHERE {recent_filter}\n"
-            "GROUP BY customer_id\n"
-            "ORDER BY total_revenue DESC, customer_id ASC\n"
-            "LIMIT 10;"
-        )
+def _find_order_column(table) -> str | None:
+    """找到表中适合做排序的列（优先时间列，次选数值列）。"""
+    # 优先时间列
+    time_col = _find_time_column(table)
+    if time_col:
+        return time_col
+    # 次选：id 列
+    for column in table.columns:
+        if column.is_primary_key:
+            return column.name
+    return None
 
-    if table_name == "customers":
-        return (
-            "SELECT id, name, segment, created_at\n"
-            "FROM customers\n"
-            f"WHERE {recent_filter}\n"
-            "ORDER BY created_at DESC, id DESC\n"
-            "LIMIT 20;"
-        )
 
-    return (
-        "SELECT id, customer_id, total_amount, status, created_at\n"
-        "FROM orders\n"
-        f"WHERE {recent_filter}\n"
-        "ORDER BY created_at DESC, id DESC\n"
-        "LIMIT 20;"
-    )
+def build_fallback_sql(question: str, catalog: SchemaCatalog | None = None) -> str:
+    """当模型不可用或生成失败时，基于当前 schema 动态生成安全的只读 SQL。"""
+    # 无 catalog 时返回安全降级 SQL
+    if not catalog or not catalog.tables:
+        return "SELECT 1 AS result;"
+
+    table_name = _infer_primary_table(question, catalog)
+    if not table_name:
+        # 找不到匹配表，使用第一张表
+        table_name = catalog.tables[0].name
+
+    # 查找对应的表元数据
+    target_table = None
+    for table in catalog.tables:
+        if table.name == table_name:
+            target_table = table
+            break
+
+    if not target_table:
+        return "SELECT 1 AS result;"
+
+    # 选择展示列（最多 5 个非主键列）
+    display_columns = [
+        col.name for col in target_table.columns
+        if not col.is_primary_key
+    ][:5]
+    # 如果没有非主键列，用主键列
+    if not display_columns:
+        display_columns = [col.name for col in target_table.columns if col.is_primary_key][:1]
+    if not display_columns:
+        display_columns = ["*"]
+
+    col_list = ", ".join(display_columns)
+    order_col = _find_order_column(target_table)
+
+    # 构建 SQL
+    parts = [f"SELECT {col_list} FROM {table_name}"]
+
+    # 尝试加时间过滤
+    time_col = _find_time_column(target_table)
+    if time_col:
+        driver_name = (get_settings().database_url or "").lower()
+        if "mysql" in driver_name:
+            parts.append(f"WHERE {time_col} >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)")
+        elif "sqlite" in driver_name:
+            parts.append(f"WHERE {time_col} >= date('now', '-30 day')")
+        else:
+            parts.append(f"WHERE {time_col} >= CURRENT_DATE - INTERVAL '30 days'")
+
+    if order_col:
+        parts.append(f"ORDER BY {order_col} DESC")
+
+    parts.append("LIMIT 20")
+
+    return "\n".join(parts) + ";"
 
 
 def _extract_text(content: str | list[str | dict[str, str]]) -> str:
@@ -96,6 +178,346 @@ def _extract_text(content: str | list[str | dict[str, str]]) -> str:
             parts.append(text)
 
     return "\n".join(parts)
+
+
+def _extract_json_object(content: str) -> dict[str, Any] | None:
+    text = content.strip()
+    if not text:
+        return None
+
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lower().startswith("json"):
+            text = text[4:].lstrip()
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{[\s\S]*\}", text)
+        if not match:
+            return None
+        try:
+            payload = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return None
+
+    return payload if isinstance(payload, dict) else None
+
+
+def _invoke_model_json(model: Any, prompt: str) -> dict[str, Any] | None:
+    try:
+        response = model.invoke(prompt)
+        content = _extract_text(cast(str | list[str | dict[str, str]], response.content))
+    except Exception:
+        return None
+    return _extract_json_object(content)
+
+
+def _extract_catalog_business_terms(catalog: SchemaCatalog | None) -> tuple[list[str], list[str]]:
+    """从 schema catalog 动态提取业务术语和条件标记。"""
+    if not catalog or not catalog.tables:
+        return [], []
+
+    business_terms: list[str] = []
+    condition_markers: list[str] = []
+
+    for table in catalog.tables:
+        if table.description:
+            business_terms.append(table.description)
+        for alias in table.aliases:
+            if alias.strip():
+                business_terms.append(alias.strip())
+        for term in table.business_terms:
+            if term.strip():
+                business_terms.append(term.strip())
+
+        for column in table.columns:
+            if column.description:
+                business_terms.append(column.description)
+            for term in column.business_terms:
+                if term.strip():
+                    business_terms.append(term.strip())
+            if column.semantic_role in ("dimension", "foreign_key", "timestamp"):
+                if column.description:
+                    condition_markers.append(column.description)
+                for term in column.business_terms:
+                    if term.strip():
+                        condition_markers.append(term.strip())
+
+    business_terms = list(dict.fromkeys(business_terms))
+    condition_markers = list(dict.fromkeys(condition_markers))
+    return business_terms, condition_markers
+
+
+def _fallback_query_understanding(question: str, catalog: SchemaCatalog | None = None) -> dict[str, Any]:
+    normalized_question = question.lower()
+    tags = _detect_question_tags(question)
+
+    intent = "aggregate" if "aggregation" in tags else "select"
+    target_mentions: list[str] = []
+    condition_mentions: list[dict[str, object]] = []
+    value_mentions: list[str] = []
+
+    catalog_business_terms, catalog_condition_markers = _extract_catalog_business_terms(catalog)
+    if not catalog_business_terms:
+        catalog_business_terms = ["客户", "用户", "订单", "状态", "分类", "价格", "金额"]
+    if not catalog_condition_markers:
+        catalog_condition_markers = ["状态", "分类", "价格", "金额", "时间"]
+
+    for term in catalog_business_terms:
+        if term in question:
+            target_mentions.append(term)
+
+    for marker in catalog_condition_markers:
+        if marker in question:
+            condition_mentions.append({"mention": marker})
+
+    quoted_values = re.findall(r"[“”‘’\"']([^[“”‘’\"']+)[“”‘’\"']", question)
+    value_mentions.extend(quoted_values)
+
+    limit: int | None = None
+    limit_match = re.search(r"(?:top\s*|前\s*)(\d+)", normalized_question)
+    if limit_match:
+        limit = int(limit_match.group(1))
+
+    order_by: list[dict[str, object]] = []
+    if any(keyword in normalized_question for keyword in ["最高", "最多", "top", "desc", "最贵", "最热门"]):
+        order_by.append({"direction": "DESC"})
+    elif any(keyword in normalized_question for keyword in ["最低", "最少", "asc", "最便宜"]):
+        order_by.append({"direction": "ASC"})
+
+    return {
+        "intent": intent,
+        "target_mentions": target_mentions,
+        "condition_mentions": condition_mentions,
+        "value_mentions": value_mentions,
+        "aggregation": {"type": "auto"} if "aggregation" in tags else None,
+        "group_by": [],
+        "order_by": order_by,
+        "limit": limit,
+        "time_range": {"type": "relative"} if "time-range" in tags else None,
+        "requires_join_hint": "join" in tags,
+        "tags": tags,
+        "source": "deterministic",
+    }
+
+
+def _normalize_query_understanding_payload(
+    question: str,
+    payload: dict[str, Any],
+    fallback: dict[str, Any],
+) -> dict[str, Any]:
+    result = dict(fallback)
+    result["intent"] = str(payload.get("intent") or fallback.get("intent") or "select")
+    result["target_mentions"] = [str(item) for item in payload.get("target_mentions", fallback.get("target_mentions", [])) if str(item).strip()]
+    result["value_mentions"] = [str(item) for item in payload.get("value_mentions", fallback.get("value_mentions", [])) if str(item).strip()]
+
+    raw_conditions = payload.get("condition_mentions", fallback.get("condition_mentions", []))
+    normalized_conditions: list[dict[str, object]] = []
+    if isinstance(raw_conditions, list):
+        for item in raw_conditions:
+            if isinstance(item, dict):
+                mention = item.get("mention")
+                if mention:
+                    normalized_conditions.append({"mention": str(mention)})
+            elif item:
+                normalized_conditions.append({"mention": str(item)})
+    result["condition_mentions"] = normalized_conditions
+
+    raw_order = payload.get("order_by", fallback.get("order_by", []))
+    order_by: list[dict[str, object]] = []
+    if isinstance(raw_order, list):
+        for item in raw_order:
+            if isinstance(item, dict):
+                normalized_item: dict[str, object] = {}
+                if item.get("table"):
+                    normalized_item["table"] = str(item["table"])
+                if item.get("column"):
+                    normalized_item["column"] = str(item["column"])
+                direction = str(item.get("direction") or "ASC").upper()
+                normalized_item["direction"] = "DESC" if direction == "DESC" else "ASC"
+                order_by.append(normalized_item)
+    result["order_by"] = order_by or cast(list[dict[str, object]], fallback.get("order_by", []))
+
+    limit = payload.get("limit")
+    result["limit"] = limit if isinstance(limit, int) and limit > 0 else fallback.get("limit")
+    result["group_by"] = payload.get("group_by", fallback.get("group_by", [])) if isinstance(payload.get("group_by", fallback.get("group_by", [])), list) else []
+    result["aggregation"] = payload.get("aggregation", fallback.get("aggregation"))
+    result["time_range"] = payload.get("time_range", fallback.get("time_range"))
+    result["requires_join_hint"] = bool(payload.get("requires_join_hint", fallback.get("requires_join_hint", False)))
+    result["ambiguities"] = payload.get("ambiguities", []) if isinstance(payload.get("ambiguities", []), list) else []
+    result["question"] = question
+    result["source"] = "llm"
+    result["tags"] = fallback.get("tags", [])
+    return result
+
+
+def _normalize_sql_plan_candidate(
+    candidate: dict[str, Any],
+    fallback_plan: dict[str, Any],
+    schema_linking: dict[str, Any],
+    value_links: list[dict[str, Any]],
+) -> dict[str, Any]:
+    matched_tables = cast(list[dict[str, Any]], schema_linking.get("matched_tables", schema_linking.get("linked_tables", [])))
+    allowed_columns: dict[str, set[str]] = {}
+    for table in matched_tables:
+        table_name = str(table.get("table_name") or table.get("name") or "").strip()
+        if not table_name:
+            continue
+        allowed_columns.setdefault(table_name, set())
+        for column in table.get("matched_columns", []):
+            column_name = str(column.get("column_name") or column.get("name") or "").strip()
+            if column_name:
+                allowed_columns[table_name].add(column_name)
+
+    from_table = str(candidate.get("from_table") or fallback_plan.get("from_table") or "").strip() or None
+    if from_table not in allowed_columns and fallback_plan.get("from_table"):
+        from_table = cast(str, fallback_plan.get("from_table"))
+
+    select_items: list[dict[str, object]] = []
+    raw_select = candidate.get("select", [])
+    if isinstance(raw_select, list):
+        for item in raw_select:
+            if not isinstance(item, dict):
+                continue
+            table = str(item.get("table") or from_table or "").strip()
+            column = str(item.get("column") or "").strip()
+            if not table or not column:
+                continue
+            if column != "*" and column not in allowed_columns.get(table, set()):
+                continue
+            select_items.append({"table": table, "column": column, "source": "schema_linking"})
+    if not select_items:
+        select_items = cast(list[dict[str, object]], fallback_plan.get("select", []))
+
+    order_by_items: list[dict[str, object]] = []
+    raw_order_by = candidate.get("order_by", [])
+    if isinstance(raw_order_by, list):
+        for item in raw_order_by:
+            if not isinstance(item, dict):
+                continue
+            table = str(item.get("table") or from_table or "").strip()
+            column = str(item.get("column") or "").strip()
+            if not table or not column or column not in allowed_columns.get(table, set()):
+                continue
+            direction = str(item.get("direction") or "ASC").upper()
+            order_by_items.append({"table": table, "column": column, "direction": "DESC" if direction == "DESC" else "ASC"})
+    if not order_by_items:
+        order_by_items = cast(list[dict[str, object]], fallback_plan.get("order_by", []))
+
+    group_by_items: list[dict[str, object]] = []
+    raw_group_by = candidate.get("group_by", [])
+    if isinstance(raw_group_by, list):
+        for item in raw_group_by:
+            if isinstance(item, dict):
+                table = str(item.get("table") or from_table or "").strip()
+                column = str(item.get("column") or "").strip()
+                if table and column and column in allowed_columns.get(table, set()):
+                    group_by_items.append({"table": table, "column": column})
+    params = cast(list[object], fallback_plan.get("params", []))
+    where_clauses = cast(list[dict[str, object]], fallback_plan.get("where", []))
+    joins = cast(list[dict[str, object]], fallback_plan.get("joins", []))
+    distinct = bool(fallback_plan.get("distinct", False) or candidate.get("distinct", False))
+
+    return {
+        "select": select_items,
+        "from_table": from_table,
+        "joins": joins,
+        "where": where_clauses,
+        "group_by": group_by_items,
+        "having": [],
+        "order_by": order_by_items,
+        "limit": candidate.get("limit") if isinstance(candidate.get("limit"), int) and candidate.get("limit") else fallback_plan.get("limit"),
+        "distinct": distinct,
+        "params": params,
+        "provenance": {
+            "select": "schema_linking",
+            "from_table": "schema_linking" if from_table else None,
+            "joins": "join_path_planning" if joins else None,
+            "where": "value_linking" if where_clauses or value_links else None,
+            "group_by": "llm_planning" if group_by_items else None,
+            "order_by": "llm_planning" if order_by_items else fallback_plan.get("provenance", {}).get("order_by"),
+            "limit": "llm_planning" if isinstance(candidate.get("limit"), int) else fallback_plan.get("provenance", {}).get("limit"),
+            "distinct": "join_path_planning" if distinct else None,
+        },
+    }
+
+
+def _build_query_understanding_prompt(
+    question: str,
+    fallback: dict[str, Any],
+    catalog: SchemaCatalog | None = None,
+) -> str:
+    parts = [
+        "You are a query-understanding planner for an NL2SQL agent.",
+        "Return only one JSON object.",
+        "Extract user intent without generating SQL.",
+        "Keys: intent, target_mentions, condition_mentions, value_mentions, aggregation, group_by, order_by, limit, time_range, requires_join_hint, ambiguities.",
+        "condition_mentions must be a list of objects like {\"mention\": \"状态\"}.",
+        "order_by items should include table, column, direction when confident.",
+    ]
+
+    # 注入当前 schema 的表名和关键业务术语
+    if catalog and catalog.tables:
+        table_names = [table.name for table in catalog.tables]
+        all_business_terms: list[str] = []
+        for table in catalog.tables:
+            all_business_terms.extend(t for t in table.business_terms if t.strip())
+            for column in table.columns:
+                all_business_terms.extend(t for t in column.business_terms if t.strip())
+        unique_terms = list(dict.fromkeys(all_business_terms))[:20]
+        parts.append(f"Available tables: {', '.join(table_names)}")
+        if unique_terms:
+            parts.append(f"Key business terms: {', '.join(unique_terms)}")
+
+    parts.append(f"Question: {question}")
+    parts.append(f"Fallback understanding for reference: {json.dumps(fallback, ensure_ascii=False)}")
+    return "\n".join(parts)
+
+
+def _build_sql_plan_prompt(
+    question: str,
+    schema_context: list[str],
+    query_understanding: dict[str, Any],
+    schema_linking: dict[str, Any],
+    value_links: list[dict[str, Any]],
+    join_path_plan: dict[str, Any],
+    fallback_plan: dict[str, Any],
+) -> str:
+    return "\n".join([
+        "You are a SQL planner for an NL2SQL agent.",
+        "Return only one JSON object representing a SQL plan, not SQL text.",
+        "Use only tables, columns, joins and values that already appear in the provided context.",
+        "Do not invent tables, columns, values, or joins.",
+        "Keys: from_table, select, group_by, order_by, limit, distinct.",
+        "select items should be objects with table and column.",
+        "group_by items should be objects with table and column.",
+        "order_by items should be objects with table, column, direction.",
+        f"Question: {question}",
+        f"Schema context: {json.dumps(schema_context, ensure_ascii=False)}",
+        f"Query understanding: {json.dumps(query_understanding, ensure_ascii=False)}",
+        f"Schema linking: {json.dumps(schema_linking, ensure_ascii=False)}",
+        f"Value links: {json.dumps(value_links, ensure_ascii=False)}",
+        f"Join path plan: {json.dumps(join_path_plan, ensure_ascii=False)}",
+        f"Deterministic fallback SQL plan: {json.dumps(fallback_plan, ensure_ascii=False)}",
+    ])
+
+
+def _build_sql_repair_prompt(
+    question: str,
+    schema_context: list[str],
+    sql_plan: dict[str, Any],
+    validation_issues: list[dict[str, Any]],
+) -> str:
+    return "\n".join([
+        "You are a SQL plan repair assistant.",
+        "Return only one repaired SQL plan JSON object.",
+        "Only repair the provided plan; do not invent tables, columns or joins outside the given schema context.",
+        f"Question: {question}",
+        f"Schema context: {json.dumps(schema_context, ensure_ascii=False)}",
+        f"Current SQL plan: {json.dumps(sql_plan, ensure_ascii=False)}",
+        f"Validation issues: {json.dumps(validation_issues, ensure_ascii=False)}",
+    ])
 
 
 def _normalize_sql(candidate: str) -> str:
@@ -160,83 +582,85 @@ def _detect_question_tags(question: str) -> list[str]:
     normalized_question = question.strip().lower()
     tags: list[str] = []
 
-    if any(keyword in normalized_question for keyword in ["sum", "count", "avg", "max", "min", "总", "统计", "汇总", "平均", "收入", "销售额", "金额"]):
+    aggregation_keywords = [
+        # 英文
+        "sum", "count", "avg", "max", "min", "total",
+        # 中文技术术语
+        "总", "统计", "汇总", "平均", "收入", "销售额", "金额",
+        # 中文口语化表达
+        "哪些卖得好", "卖得好", "最受欢迎", "最热门", "热门", "火爆",
+        "销量", "数量最多", "最多", "最少", "总共", "合计",
+        "有多少", "多少个", "多少条", "几个", "几条",
+        "排行榜", "排行", "排名",
+    ]
+    if any(keyword in normalized_question for keyword in aggregation_keywords):
         tags.append("aggregation")
-    if any(keyword in normalized_question for keyword in ["最近", "近 ", "近", "天", "周", "月", "year", "today", "yesterday", "recent", "latest", "newest"]):
+
+    time_range_keywords = [
+        # 英文
+        "year", "today", "yesterday", "recent", "latest", "newest",
+        # 中文技术术语
+        "最近", "近 ", "近",
+        # 中文口语化时间表达
+        "这几天", "这个月", "这周", "今年", "去年", "前天", "昨天", "今天",
+        "近期", "刚刚", "刚才", "近日", "日前", "早些时候",
+        "天", "周", "月", "年",
+    ]
+    if any(keyword in normalized_question for keyword in time_range_keywords):
         tags.append("time-range")
-    if any(keyword in normalized_question for keyword in ["top", "最高", "最低", "排行", "排名", "前", "best", "worst"]):
+
+    top_n_keywords = [
+        # 英文
+        "top", "best", "worst",
+        # 中文技术术语
+        "最高", "最低", "排行", "排名", "前",
+        # 中文口语化比较表达
+        "最贵", "最便宜", "最划算", "最好", "最差",
+        "最受欢迎", "最热门", "最火", "最畅销",
+        "好评", "差评", "热门",
+    ]
+    if any(keyword in normalized_question for keyword in top_n_keywords):
         tags.append("top-n")
-    if any(keyword in normalized_question for keyword in ["join", "关联", "同时", "以及", "和", "对应"]):
+
+    join_keywords = [
+        # 英文
+        "join",
+        # 中文技术术语
+        "关联", "同时", "以及", "和", "对应",
+        # 中文口语化关联表达
+        "属于", "包含", "有哪些", "对应的是", "相关的",
+        "一起", "连同", "带上", "附带",
+    ]
+    if any(keyword in normalized_question for keyword in join_keywords):
         tags.append("join")
+
     if not tags:
         tags.append("detail")
 
     return tags
 
 
-def query_understanding(state: AgentState) -> AgentState:
+def query_understanding(state: AgentState, llm_service: LLMService, catalog: SchemaCatalog | None = None) -> AgentState:
     question = state.get("question", "").strip()
-    normalized_question = question.lower()
-    tags = _detect_question_tags(question)
+    fallback_understanding = _fallback_query_understanding(question, catalog)
+    model = llm_service.build_chat_model()
+    if model is None:
+        return {"query_understanding": fallback_understanding}
 
-    intent = "aggregate" if "aggregation" in tags else "select"
-    target_mentions: list[str] = []
-    condition_mentions: list[dict[str, object]] = []
-    value_mentions: list[str] = []
+    payload = _invoke_model_json(
+        model,
+        _build_query_understanding_prompt(question, fallback_understanding, catalog),
+    )
+    if payload is None:
+        return {"query_understanding": fallback_understanding}
 
-    business_terms = [
-        "客户",
-        "用户",
-        "订单",
-        "下单",
-        "状态",
-        "分类",
-        "菜品",
-        "口味",
-        "价格",
-        "销售额",
-        "金额",
-    ]
-    for term in business_terms:
-        if term in question:
-            target_mentions.append(term)
-
-    condition_markers = ["状态", "分类", "口味", "价格", "金额", "时间"]
-    for marker in condition_markers:
-        if marker in question:
-            condition_mentions.append({"mention": marker})
-
-    quoted_values = re.findall(r"[“\"']([^”\"']+)[”\"']", question)
-    value_mentions.extend(quoted_values)
-    if "甜" in question and "甜" not in value_mentions:
-        value_mentions.append("甜")
-
-    limit: int | None = None
-    limit_match = re.search(r"(?:top\s*|前\s*)(\d+)", normalized_question)
-    if limit_match:
-        limit = int(limit_match.group(1))
-
-    order_by: list[dict[str, object]] = []
-    if any(keyword in normalized_question for keyword in ["最高", "最多", "top", "desc"]):
-        order_by.append({"direction": "DESC"})
-    elif any(keyword in normalized_question for keyword in ["最低", "最少", "asc"]):
-        order_by.append({"direction": "ASC"})
-
-    query_understanding_result = {
-        "intent": intent,
-        "target_mentions": target_mentions,
-        "condition_mentions": condition_mentions,
-        "value_mentions": value_mentions,
-        "aggregation": {"type": "auto"} if "aggregation" in tags else None,
-        "group_by": [],
-        "order_by": order_by,
-        "limit": limit,
-        "time_range": {"type": "relative"} if "time-range" in tags else None,
-        "requires_join_hint": "join" in tags,
-        "tags": tags,
+    return {
+        "query_understanding": _normalize_query_understanding_payload(
+            question,
+            payload,
+            fallback_understanding,
+        )
     }
-
-    return {"query_understanding": query_understanding_result}
 
 
 def _select_few_shot_examples(question: str, limit: int = 3) -> list[dict[str, object]]:
@@ -287,10 +711,14 @@ def _build_prompt(
     business_semantic_brief: dict[str, Any] | None = None,
     join_path_plan: dict[str, Any] | None = None,
     schema_linking: dict[str, Any] | None = None,
+    catalog: SchemaCatalog | None = None,
 ) -> str:
+    from app.rag.few_shot_manager import FewShotManager
+
     joined_schema = "\n".join(f"- {item}" for item in schema_context)
     prompt = _load_nl2sql_prompt()
-    selected_examples = _select_few_shot_examples(question)
+    few_shot_manager = FewShotManager(catalog)
+    selected_examples = few_shot_manager.select_examples(question)
     few_shot = _format_few_shot_examples(selected_examples)
 
     parts: list[str] = [prompt]
@@ -338,7 +766,13 @@ def _build_prompt(
 async def retrieve_schema(state: AgentState, rag_service: RagService) -> AgentState:
     # 从状态中取问题，补充与问题相关的 schema 上下文和结构化 schema plan。
     question = state.get("question", "")
-    query_schema_plan = (await rag_service.build_query_schema_plan(question)).model_dump()
+    query_understanding_result = state.get("query_understanding", {})
+    query_schema_plan = (
+        await rag_service.build_query_schema_plan(
+            question,
+            query_understanding=cast(dict[str, object], query_understanding_result),
+        )
+    ).model_dump()
     return {
         "query_schema_plan": query_schema_plan,
         "schema_context": cast(list[str], query_schema_plan.get("schema_context", [])),
@@ -356,27 +790,14 @@ def schema_linking(state: AgentState) -> AgentState:
 
 
 def value_linking(state: AgentState) -> AgentState:
-    schema_linking_result = state.get("schema_linking", {})
     query_understanding_result = state.get("query_understanding", {})
-    value_mentions = cast(list[str], query_understanding_result.get("value_mentions", []))
-    linked_tables = schema_linking_result.get("linked_tables", [])
-    primary_table = linked_tables[0].get("name") if linked_tables else None
+    schema_linking_result = state.get("schema_linking", {})
+    value_linking_result = ValueLinker().link(
+        cast(dict[str, Any], query_understanding_result),
+        cast(dict[str, Any], schema_linking_result),
+    )
 
-    value_links = [
-        {
-            "mention": mention,
-            "field_mention": None,
-            "table": primary_table,
-            "column": None,
-            "db_value": mention,
-            "confidence": 0.5,
-            "match_type": "typed_literal",
-            "source": "literal",
-        }
-        for mention in value_mentions
-    ]
-
-    return {"value_links": value_links}
+    return {"value_links": [link.model_dump() for link in value_linking_result.value_links]}
 
 
 def join_path_planning(state: AgentState) -> AgentState:
@@ -399,176 +820,204 @@ def build_semantic_brief(state: AgentState) -> AgentState:
     return {"business_semantic_brief": business_semantic_brief_result}
 
 
-def sql_planning(state: AgentState) -> AgentState:
-    schema_linking_result = state.get("schema_linking", {})
-    join_path_plan = state.get("join_path_plan", {})
-    query_understanding_result = state.get("query_understanding", {})
-    linked_tables = schema_linking_result.get("linked_tables", [])
-    from_table = linked_tables[0].get("name") if linked_tables else None
+def sql_planning(state: AgentState, llm_service: LLMService) -> AgentState:
+    query_understanding = cast(dict[str, Any], state.get("query_understanding", {}))
+    schema_linking = cast(dict[str, Any], state.get("schema_linking", {}))
+    value_links = cast(list[dict[str, Any]], state.get("value_links", []))
+    join_path_plan = cast(dict[str, Any], state.get("join_path_plan", {}))
+    fallback_plan = SQLPlanner().build(
+        query_understanding=query_understanding,
+        schema_linking=schema_linking,
+        value_links=value_links,
+        join_path_plan=join_path_plan,
+    ).model_dump()
 
-    sql_plan = {
-        "select": [],
-        "from_table": from_table,
-        "joins": join_path_plan.get("join_edges", []),
-        "where": [],
-        "group_by": [],
-        "having": [],
-        "order_by": query_understanding_result.get("order_by", []),
-        "limit": query_understanding_result.get("limit"),
-        "distinct": bool(join_path_plan.get("requires_distinct", False)),
-        "params": [],
-        "provenance": {
-            "schema_linking": bool(schema_linking_result),
-            "value_linking": bool(state.get("value_links", [])),
-            "join_path_planning": bool(join_path_plan),
-        },
-    }
+    model = llm_service.build_chat_model()
+    if model is None:
+        return {"sql_plan": fallback_plan, "sql_params": cast(list[object], fallback_plan.get("params", []))}
 
-    return {"sql_plan": sql_plan, "sql_params": sql_plan["params"]}
+    payload = _invoke_model_json(
+        model,
+        _build_sql_plan_prompt(
+            state.get("question", ""),
+            cast(list[str], state.get("schema_context", [])),
+            query_understanding,
+            schema_linking,
+            value_links,
+            join_path_plan,
+            fallback_plan,
+        ),
+    )
+    if payload is None:
+        return {"sql_plan": fallback_plan, "sql_params": cast(list[object], fallback_plan.get("params", []))}
+
+    sql_plan = _normalize_sql_plan_candidate(
+        payload,
+        fallback_plan,
+        schema_linking,
+        value_links,
+    )
+    return {"sql_plan": sql_plan, "sql_params": cast(list[object], sql_plan.get("params", []))}
 
 
-def sql_repairing(state: AgentState) -> AgentState:
+def sql_repairing(state: AgentState, llm_service: LLMService) -> AgentState:
     retry_count = state.get("retry_count", 0) + 1
     repair_attempts = state.get("repair_attempts", 0) + 1
+    validation_issues = cast(list[dict[str, Any]], state.get("validation_issues", []))
+    current_plan = cast(dict[str, Any], state.get("sql_plan", {}))
+    repair_result = SQLRepairer().repair(current_plan, validation_issues)
     debug_trace = dict(state.get("debug_trace", {}))
+
+    if not repair_result.repaired and repair_result.fatal and validation_issues:
+        model = llm_service.build_chat_model()
+        if model is not None:
+            payload = _invoke_model_json(
+                model,
+                _build_sql_repair_prompt(
+                    state.get("question", ""),
+                    cast(list[str], state.get("schema_context", [])),
+                    current_plan,
+                    validation_issues,
+                ),
+            )
+            if payload is not None:
+                repaired_plan = _normalize_sql_plan_candidate(
+                    payload,
+                    current_plan,
+                    cast(dict[str, Any], state.get("schema_linking", {})),
+                    cast(list[dict[str, Any]], state.get("value_links", [])),
+                )
+                debug_trace["last_repair"] = {
+                    "attempt": repair_attempts,
+                    "repaired": True,
+                    "fatal": False,
+                    "summary": "已通过 LLM 重写 SQL Plan。",
+                    "mode": "llm",
+                    "validation_errors": state.get("validation_errors", []),
+                    "validation_issues": validation_issues,
+                }
+                return {
+                    "sql_plan": repaired_plan,
+                    "sql_params": cast(list[object], repaired_plan.get("params", [])),
+                    "retry_count": retry_count,
+                    "repair_attempts": repair_attempts,
+                    "debug_trace": debug_trace,
+                    "validation_errors": [],
+                    "validation_issues": [],
+                }
+
     debug_trace["last_repair"] = {
         "attempt": repair_attempts,
+        "repaired": repair_result.repaired,
+        "fatal": repair_result.fatal,
+        "summary": repair_result.summary,
+        "mode": "deterministic",
         "validation_errors": state.get("validation_errors", []),
-        "validation_issues": state.get("validation_issues", []),
+        "validation_issues": validation_issues,
     }
 
+    if repair_result.fatal:
+        return {
+            "retry_count": retry_count,
+            "repair_attempts": repair_attempts,
+            "debug_trace": debug_trace,
+            "status": "error",
+            "validation_errors": [],
+            "explanation": repair_result.summary,
+            "execution_summary": repair_result.summary,
+        }
+
     return {
+        "sql_plan": repair_result.sql_plan,
+        "sql_params": cast(list[object], repair_result.sql_plan.get("params", [])),
         "retry_count": retry_count,
         "repair_attempts": repair_attempts,
         "debug_trace": debug_trace,
+        "validation_errors": [],
+        "validation_issues": [],
     }
 
 
-def generate_sql(state: AgentState, llm_service: LLMService) -> AgentState:
-    # 先尝试真实模型生成；不可用时自动回退到教学型 SQL。
-    question = state.get("question", "")
-    schema_context = state.get("schema_context", [])
-    business_semantic_brief = cast(dict[str, Any], state.get("business_semantic_brief", {}))
-    join_path_plan = cast(dict[str, Any], state.get("join_path_plan", {}))
-    schema_linking_result = cast(dict[str, Any], state.get("schema_linking", {}))
-    question_tags = _detect_question_tags(question)
-    selected_examples = _select_few_shot_examples(question)
-    prompt = _build_prompt(
-        question,
-        schema_context,
-        business_semantic_brief=business_semantic_brief,
-        join_path_plan=join_path_plan,
-        schema_linking=schema_linking_result,
-    )
-    model = llm_service.build_chat_model()
-
-    logger.info(
-        "llm_generation_start tags=%s schema_items=%s few_shots=%s prompt_chars=%s",
-        question_tags,
-        len(schema_context),
-        len(selected_examples),
-        len(prompt),
-    )
-
-    if model is None:
-        logger.info(
-            "llm_generation_fallback_model_unavailable tags=%s schema_items=%s few_shots=%s prompt_chars=%s",
-            question_tags,
-            len(schema_context),
-            len(selected_examples),
-            len(prompt),
-        )
+def generate_sql(state: AgentState, llm_service: LLMService, catalog: SchemaCatalog | None = None) -> AgentState:
+    sql_plan = cast(dict[str, Any], state.get("sql_plan", {}))
+    generated_sql = SQLGenerator().generate(sql_plan)
+    if generated_sql is not None:
         return {
-            "sql": build_fallback_sql(question),
-            "status": "mock",
-            "used_fallback": True,
-            "explanation": (
-                "当前使用的是教学型 fallback 模式：系统根据问题关键词和内置 schema 摘要生成了一条稳定的示例 SQL。"
-            ),
-        }
-
-    try:
-        response = model.invoke(prompt)
-        content = _extract_text(
-            cast(str | list[str | dict[str, str]], response.content)
-        )
-        logger.info(
-            "llm_generation_success tags=%s schema_items=%s few_shots=%s prompt_chars=%s sql_chars=%s",
-            question_tags,
-            len(schema_context),
-            len(selected_examples),
-            len(prompt),
-            len(content),
-        )
-        return {
-            "sql": _normalize_sql(content),
+            "sql": generated_sql.sql,
+            "sql_params": generated_sql.params,
             "status": "ready",
             "used_fallback": False,
-            "explanation": "已调用 Zhipu GLM 生成 SQL，接下来会进入只读安全校验。",
+            "explanation": "已根据结构化 SQL Plan 生成参数化 SQL，接下来会进入只读安全校验。",
         }
-    except Exception as error:
-        logger.warning(
-            "llm_generation_fallback_provider_error tags=%s schema_items=%s few_shots=%s prompt_chars=%s error_type=%s error=%s",
-            question_tags,
-            len(schema_context),
-            len(selected_examples),
-            len(prompt),
-            error.__class__.__name__,
-            error,
-        )
-        return {
-            "sql": build_fallback_sql(question),
-            "status": "mock",
-            "used_fallback": True,
-            "explanation": "真实模型调用失败，系统已自动回退到稳定的教学型示例 SQL。",
-        }
+
+    question = state.get("question", "")
+    return {
+        "sql": build_fallback_sql(question, catalog),
+        "sql_params": [],
+        "status": "mock",
+        "used_fallback": True,
+        "explanation": "结构化 SQL Plan 无法渲染为可执行 SQL，系统已回退到稳定的示例 SQL。",
+    }
 
 
 def validate_sql(state: AgentState, validator: SQLValidator) -> AgentState:
     # 只允许只读 SQL，校验失败则标记重试计数，由 Graph 条件路由决定是否重新生成。
     sql = state.get("sql", "")
-    question = state.get("question", "")
     retry_count = state.get("retry_count", 0)
+    sql_plan = cast(dict[str, object], state.get("sql_plan", {}))
+    sql_params = cast(list[object], state.get("sql_params", []))
 
+    validation_issues: list[dict[str, Any]] = []
     try:
         validator.validate_read_only(sql)
-        return {}
+        validation_issues.extend(
+            validator.validate_plan_provenance(sql_plan=sql_plan, params=sql_params)
+        )
+        validation_issues.extend(
+            validator.validate_sql_matches_plan(sql=sql, sql_plan=sql_plan, params=sql_params)
+        )
     except DangerousSQLError as error:
-        if retry_count < 1:
-            # 第一次验证失败：标记重试，由条件路由回到 generate_sql
-            return {
-                "validation_errors": [str(error)],
-                "retry_count": retry_count + 1,
-                "explanation": f"SQL 校验未通过（{error}），正在尝试重新生成...",
+        validation_issues.append(
+            {
+                "level": "error",
+                "code": "READ_ONLY_VALIDATION_FAILED",
+                "message": str(error),
+                "repairable": False,
             }
-        else:
-            # 重试仍失败：回退到 fallback SQL
-            return {
-                "sql": build_fallback_sql(question),
-                "status": "mock",
-                "used_fallback": True,
-                "validation_errors": [str(error)],
-                "explanation": (
-                    "重新生成后仍未通过校验，系统已自动回退到稳定的示例 SQL。"
-                ),
-            }
+        )
+
+    if not validation_issues:
+        return {"validation_errors": [], "validation_issues": []}
+
+    validation_errors = [str(issue.get("message", "SQL validation failed.")) for issue in validation_issues]
+    return {
+        "validation_errors": validation_errors,
+        "validation_issues": validation_issues,
+        "retry_count": retry_count,
+        "explanation": f"SQL 校验未通过（{validation_errors[0]}），将根据错误类型决定是否修复。",
+    }
 
 
 async def execute_sql(state: AgentState, executor: SQLExecutor) -> AgentState:
     # 在 Graph 内执行 SQL，填充结果字段。
     sql = state.get("sql", "")
+    sql_params = cast(list[object], state.get("sql_params", []))
     started_at = time.monotonic()
 
     try:
-        result = await executor.execute(sql)
+        result = await executor.execute(sql, params=sql_params)
         elapsed_ms = (time.monotonic() - started_at) * 1000
+        execution_summary = result.execution_summary or ""
+        is_error = execution_summary.startswith("查询执行失败") or execution_summary.startswith("查询执行超时")
         return {
-            "rows": result.rows,
-            "columns": result.columns,
-            "row_count": result.row_count,
-            "truncated": result.truncated,
+            "status": "error" if is_error else state.get("status", "ready"),
+            "rows": [] if is_error else result.rows,
+            "columns": [] if is_error else result.columns,
+            "row_count": 0 if is_error else result.row_count,
+            "truncated": False if is_error else result.truncated,
             "execution_time_ms": round(elapsed_ms, 2),
-            "execution_summary": result.execution_summary,
+            "execution_summary": execution_summary,
+            "explanation": f"SQL 执行出错：{execution_summary}" if is_error else state.get("explanation", ""),
         }
     except Exception as error:
         elapsed_ms = (time.monotonic() - started_at) * 1000
@@ -593,6 +1042,15 @@ def finalize_response(state: AgentState) -> AgentState:
     validation_errors = state.get("validation_errors", [])
     validation_issues = state.get("validation_issues", [])
     execution_time_ms = state.get("execution_time_ms")
+    execution_summary = cast(str, state.get("execution_summary", ""))
+    status = cast(str, state.get("status", "ready"))
+
+    if validation_errors:
+        status = "error"
+        explanation = f"SQL 校验未通过：{validation_errors[0]}。"
+    elif execution_summary.startswith("查询执行失败") or execution_summary.startswith("查询执行超时"):
+        status = "error"
+        explanation = execution_summary
 
     if schema_context:
         explanation = (
@@ -626,10 +1084,17 @@ def finalize_response(state: AgentState) -> AgentState:
                 "row_count": state.get("row_count", 0),
                 "truncated": state.get("truncated", False),
                 "execution_time_ms": execution_time_ms,
+                "summary": execution_summary,
             },
             "schema_context_count": len(schema_context),
             "confidence": state.get("join_path_plan", {}).get("confidence", 0.0),
         }
     )
 
-    return {"explanation": explanation, "debug_trace": debug_trace}
+    result: AgentState = {"explanation": explanation, "debug_trace": debug_trace, "status": status}
+    if status == "error":
+        result["rows"] = []
+        result["columns"] = []
+        result["row_count"] = 0
+        result["truncated"] = False
+    return result

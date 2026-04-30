@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import text
+from sqlalchemy import inspect
 
 from app.database.engine import engine
 from app.rag.schema_enrichment import (
@@ -91,92 +91,68 @@ def _build_search_terms(
 
 async def sync_schema_metadata() -> SchemaCatalog:
     enrichment = load_schema_enrichment()
+    value_mappings = load_value_mappings()
 
     async with engine.connect() as connection:
         database_name = connection.engine.url.database or "unknown"
-        driver_name = (connection.engine.url.drivername or "").lower()
-        is_mysql = "mysql" in driver_name
-        value_mappings = load_value_mappings()
 
-        tables_result = await connection.execute(
-            text(
-                """
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_schema = :database_name
-                  AND table_type = 'BASE TABLE'
-                ORDER BY table_name
-                """
-            ),
-            {"database_name": database_name},
-        )
-        table_names = [
-            str(row[0])
-            for row in tables_result.all()
-        ]
+        def inspect_schema(sync_connection):
+            inspector = inspect(sync_connection)
+            table_names = sorted(inspector.get_table_names())
+            columns_by_table: dict[str, list[dict[str, object]]] = {}
+            primary_keys_by_table: dict[str, list[str]] = {}
+            foreign_keys: list[dict[str, object]] = []
+            indexes_by_table: dict[str, list[str]] = {}
 
-        columns_query = """
-                SELECT
-                    c.table_name,
-                    c.column_name,
-                    c.data_type,
-                    c.is_nullable,
-                    CASE WHEN k.column_name IS NOT NULL THEN 1 ELSE 0 END AS is_primary_key
-                FROM information_schema.columns c
-                LEFT JOIN information_schema.key_column_usage k
-                  ON c.table_schema = k.table_schema
-                 AND c.table_name = k.table_name
-                 AND c.column_name = k.column_name
-                 AND k.constraint_name = 'PRIMARY'
-                WHERE c.table_schema = :database_name
-                ORDER BY c.table_name, c.ordinal_position
-                """
+            for table_name in table_names:
+                primary_key = inspector.get_pk_constraint(table_name) or {}
+                constrained_columns = primary_key.get("constrained_columns") or []
+                primary_keys_by_table[table_name] = [str(column) for column in constrained_columns]
+                columns_by_table[table_name] = list(inspector.get_columns(table_name))
+                indexes_by_table[table_name] = [
+                    str(index.get("name"))
+                    for index in inspector.get_indexes(table_name)
+                    if index.get("name")
+                ]
+                for foreign_key in inspector.get_foreign_keys(table_name):
+                    referred_table = foreign_key.get("referred_table")
+                    constrained = foreign_key.get("constrained_columns") or []
+                    referred = foreign_key.get("referred_columns") or []
+                    if not referred_table or not constrained or not referred:
+                        continue
+                    foreign_keys.append(
+                        {
+                            "from_table": table_name,
+                            "from_column": str(constrained[0]),
+                            "to_table": str(referred_table),
+                            "to_column": str(referred[0]),
+                        }
+                    )
 
-        if is_mysql:
-            columns_query = """
-                SELECT
-                    c.table_name,
-                    c.column_name,
-                    c.data_type,
-                    c.is_nullable,
-                    c.column_comment,
-                    CASE WHEN k.column_name IS NOT NULL THEN 1 ELSE 0 END AS is_primary_key
-                FROM information_schema.columns c
-                LEFT JOIN information_schema.key_column_usage k
-                  ON c.table_schema = k.table_schema
-                 AND c.table_name = k.table_name
-                 AND c.column_name = k.column_name
-                 AND k.constraint_name = 'PRIMARY'
-                WHERE c.table_schema = :database_name
-                ORDER BY c.table_name, c.ordinal_position
-                """
+            return table_names, columns_by_table, primary_keys_by_table, foreign_keys, indexes_by_table
 
-        columns_result = await connection.execute(
-            text(
-                columns_query
-            ),
-            {"database_name": database_name},
-        )
+        (
+            table_names,
+            raw_columns_by_table,
+            primary_keys_by_table,
+            foreign_keys,
+            indexes_by_table,
+        ) = await connection.run_sync(inspect_schema)
 
-        columns_by_table: dict[str, list[SchemaColumn]] = {name: [] for name in table_names}
-        primary_keys_by_table: dict[str, list[str]] = {name: [] for name in table_names}
-
-        for row in columns_result.all():
-            table_name = str(row[0])
-            column_name = str(row[1])
-            data_type = str(row[2])
-            is_nullable = str(row[3])
+    tables: list[SchemaTable] = []
+    for table_name in table_names:
+        columns: list[SchemaColumn] = []
+        primary_keys = primary_keys_by_table.get(table_name, [])
+        for raw_column in raw_columns_by_table.get(table_name, []):
+            column_name = str(raw_column.get("name", ""))
+            raw_type = raw_column.get("type")
+            raw_comment = raw_column.get("comment")
             comment_value = None
-            pk_index = 4
-            if is_mysql:
-                raw_comment = row[4]
-                if raw_comment is not None:
-                    raw_comment_text = str(raw_comment).strip()
-                    if raw_comment_text:
-                        comment_value = raw_comment_text
-                pk_index = 5
+            if raw_comment is not None:
+                raw_comment_text = str(raw_comment).strip()
+                if raw_comment_text:
+                    comment_value = raw_comment_text
 
-            is_primary_key = bool(row[pk_index])
             fallback_mapping = get_fallback_mapping_for_column(
                 value_mappings,
                 table_name=table_name,
@@ -187,26 +163,21 @@ async def sync_schema_metadata() -> SchemaCatalog:
                 table_name=table_name,
                 column_name=column_name,
             )
-            column = SchemaColumn(
-                name=column_name,
-                data_type=data_type,
-                nullable=is_nullable.upper() == "YES",
-                is_primary_key=is_primary_key,
-                description=merge_column_description(
-                    db_description=comment_value,
-                    fallback_mapping=fallback_mapping,
-                ),
-                business_terms=column_enrichment.business_terms,
-                semantic_role=column_enrichment.semantic_role,
+            columns.append(
+                SchemaColumn(
+                    name=column_name,
+                    data_type=str(raw_type or "unknown"),
+                    nullable=bool(raw_column.get("nullable", True)),
+                    is_primary_key=column_name in primary_keys,
+                    description=merge_column_description(
+                        db_description=comment_value,
+                        fallback_mapping=fallback_mapping,
+                    ),
+                    business_terms=column_enrichment.business_terms,
+                    semantic_role=column_enrichment.semantic_role,
+                )
             )
-            columns_by_table.setdefault(table_name, []).append(column)
-            if is_primary_key:
-                primary_keys_by_table.setdefault(table_name, []).append(column_name)
 
-    tables: list[SchemaTable] = []
-    for table_name in table_names:
-        columns = columns_by_table.get(table_name, [])
-        primary_keys = primary_keys_by_table.get(table_name, [])
         table_enrichment = get_table_enrichment(enrichment, table_name)
         table_description = TABLE_DESCRIPTIONS.get(table_name)
         tables.append(
@@ -217,6 +188,7 @@ async def sync_schema_metadata() -> SchemaCatalog:
                 business_terms=table_enrichment.business_terms,
                 columns=columns,
                 primary_keys=primary_keys,
+                indexes=indexes_by_table.get(table_name, []),
                 searchable_terms=_build_search_terms(
                     table_name,
                     table_description,
@@ -228,9 +200,41 @@ async def sync_schema_metadata() -> SchemaCatalog:
         )
 
     table_name_set = {table.name for table in tables}
-    relations = []
+    relations: list[SchemaRelation] = []
+    seen_relations: set[tuple[str, str, str, str]] = set()
+
+    for foreign_key in foreign_keys:
+        relation_key = (
+            str(foreign_key["from_table"]),
+            str(foreign_key["from_column"]),
+            str(foreign_key["to_table"]),
+            str(foreign_key["to_column"]),
+        )
+        seen_relations.add(relation_key)
+        relation_enrichment = get_relation_enrichment(
+            enrichment,
+            from_table=relation_key[0],
+            from_column=relation_key[1],
+            to_table=relation_key[2],
+            to_column=relation_key[3],
+        )
+        relations.append(
+            SchemaRelation(
+                from_table=relation_key[0],
+                from_column=relation_key[1],
+                to_table=relation_key[2],
+                to_column=relation_key[3],
+                relation_type="foreign_key",
+                confidence=relation_enrichment.confidence,
+                join_hint=relation_enrichment.join_hint,
+            )
+        )
+
     for from_table, from_column, to_table, to_column, relation_type in RELATION_HINTS:
         if from_table not in table_name_set or to_table not in table_name_set:
+            continue
+        relation_key = (from_table, from_column, to_table, to_column)
+        if relation_key in seen_relations:
             continue
         relation_enrichment = get_relation_enrichment(
             enrichment,

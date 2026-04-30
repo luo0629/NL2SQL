@@ -42,6 +42,47 @@ async def test_sql_executor_executes_select_and_serializes_values() -> None:
 
 
 @pytest.mark.anyio
+async def test_sql_executor_executes_parameterized_select() -> None:
+    engine: AsyncEngine = create_async_engine("sqlite+aiosqlite:///:memory:")
+
+    async with engine.begin() as connection:
+        await connection.exec_driver_sql("CREATE TABLE dish (id INTEGER, name TEXT, status INTEGER)")
+        await connection.exec_driver_sql("INSERT INTO dish (id, name, status) VALUES (1, 'Noodles', 1)")
+        await connection.exec_driver_sql("INSERT INTO dish (id, name, status) VALUES (2, 'Soup', 0)")
+
+    executor = SQLExecutor(engine=engine)
+    result = await executor.execute(
+        "SELECT id, name FROM dish WHERE status = :p0 ORDER BY id ASC",
+        params=[1],
+    )
+
+    assert result.rows == [{"id": 1, "name": "Noodles"}]
+    assert result.columns == ["id", "name"]
+    assert result.execution_summary == "查询执行成功，共返回 1 行。"
+
+    await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_sql_executor_applies_max_rows() -> None:
+    engine: AsyncEngine = create_async_engine("sqlite+aiosqlite:///:memory:")
+
+    async with engine.begin() as connection:
+        await connection.exec_driver_sql("CREATE TABLE dish (id INTEGER)")
+        await connection.exec_driver_sql("INSERT INTO dish (id) VALUES (1)")
+        await connection.exec_driver_sql("INSERT INTO dish (id) VALUES (2)")
+
+    executor = SQLExecutor(engine=engine)
+    result = await executor.execute("SELECT id FROM dish ORDER BY id ASC", max_rows=1)
+
+    assert result.row_count == 2
+    assert result.rows == [{"id": 1}]
+    assert result.truncated is True
+
+    await engine.dispose()
+
+
+@pytest.mark.anyio
 async def test_sql_executor_returns_empty_result_summary() -> None:
     engine: AsyncEngine = create_async_engine("sqlite+aiosqlite:///:memory:")
 

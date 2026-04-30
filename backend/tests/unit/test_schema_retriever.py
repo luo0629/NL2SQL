@@ -58,6 +58,22 @@ def test_schema_retriever_matches_relevant_table() -> None:
     assert any("relations" in item for item in context)
 
 
+def test_schema_retriever_uses_query_understanding_mentions() -> None:
+    retriever = SchemaRetriever(build_catalog())
+
+    linking = retriever.link(
+        "查一下相关信息",
+        query_understanding={
+            "target_mentions": ["客户"],
+            "condition_mentions": [{"mention": "用户名"}],
+            "value_mentions": [],
+        },
+    )
+
+    user_table = next(table for table in linking.matched_tables if table.table_name == "user")
+    assert user_table.score > 0
+
+
 def test_schema_retriever_falls_back_when_question_is_unclear() -> None:
     retriever = SchemaRetriever(build_catalog())
 
