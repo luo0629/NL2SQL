@@ -24,12 +24,13 @@ class StubSQLExecutor(SQLExecutor):
         max_rows: int | None = None,
         timeout_seconds: float | None = None,
     ) -> SQLExecutionResult:
+        rows = [{"sql": sql, "params": list(params or [])}]
         return SQLExecutionResult(
-            rows=[{"id": 1, "name": "Alice"}],
-            row_count=1,
-            columns=["id", "name"],
+            rows=rows,
+            row_count=len(rows),
+            columns=["sql", "params"],
             truncated=False,
-            execution_summary="查询执行成功，共返回 1 行。",
+            execution_summary=f"查询执行成功，共返回 {len(rows)} 行。",
         )
 
 
@@ -87,17 +88,23 @@ async def test_agent_service_response_includes_debug_trace() -> None:
     )
 
     assert response.status == "ready"
-    assert response.rows == [{"id": 1, "name": "Alice"}]
+    assert response.rows == [{"sql": response.sql, "params": response.params}]
+    assert response.columns == ["sql", "params"]
     assert response.params is not None
     assert response.debug is not None
     assert set(response.debug) >= {
         "query_understanding",
+        "schema_linking",
         "schema_links",
         "value_links",
+        "join_path_plan",
         "join_paths",
+        "semantic_brief",
         "sql_plan",
+        "validation",
         "validation_errors",
         "validation_issues",
+        "repair_attempts",
         "fallback",
         "execution",
     }

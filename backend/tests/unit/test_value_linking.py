@@ -1,3 +1,4 @@
+from app.agent.nodes import value_linking
 from app.rag.schema_models import SchemaCatalog, SchemaColumn, SchemaTable
 from app.rag.value_linker import ValueLinker
 
@@ -107,3 +108,24 @@ def test_value_linker_marks_unresolved_value() -> None:
     assert link.db_value is None
     assert link.match_type == "unresolved"
     assert link.source == "fallback"
+
+
+def test_agent_value_linking_passes_catalog_to_value_linker() -> None:
+    result = value_linking(
+        {
+            "query_understanding": {
+                "condition_mentions": [{"mention": "状态"}],
+                "value_mentions": ["停售"],
+            },
+            "schema_linking": build_schema_linking(),
+        },
+        build_catalog(),
+    )
+
+    link = result["value_links"][0]
+
+    assert link["table"] == "dish"
+    assert link["column"] == "status"
+    assert link["db_value"] == "0"
+    assert link["match_type"] == "exact"
+    assert link["source"] == "mapping"

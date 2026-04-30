@@ -70,7 +70,7 @@ def build_agent_graph(
         return schema_linking(cast(AgentState, state))
 
     def value_linking_node(state: object) -> AgentState:
-        return value_linking(cast(AgentState, state))
+        return value_linking(cast(AgentState, state), catalog)
 
     def join_path_planning_node(state: object) -> AgentState:
         return join_path_planning(cast(AgentState, state))
@@ -79,7 +79,7 @@ def build_agent_graph(
         return build_semantic_brief(cast(AgentState, state))
 
     def sql_planning_node(state: object) -> AgentState:
-        return sql_planning(cast(AgentState, state), llm_service)
+        return sql_planning(cast(AgentState, state), llm_service, catalog)
 
     def generate_sql_node(state: object) -> AgentState:
         return generate_sql(cast(AgentState, state), llm_service, catalog)
