@@ -136,6 +136,8 @@ def test_join_path_planner_builds_single_hop_plan() -> None:
     assert len(plan.edges) == 1
     assert plan.edges[0].left_table == "orders"
     assert plan.edges[0].right_table == "user"
+    assert plan.edges[0].source == "schema_relation"
+    assert plan.requires_distinct is False
     assert plan.plan_confidence == "high"
 
 
@@ -169,6 +171,43 @@ def test_join_path_planner_builds_multi_hop_plan() -> None:
     assert plan.edges[1].left_table == "dish"
     assert plan.edges[1].right_table == "category"
     assert plan.plan_confidence == "medium"
+
+
+def test_join_path_planner_marks_requires_distinct_for_one_to_many_path() -> None:
+    planner = JoinPathPlanner()
+    catalog = build_catalog()
+    linking_result = build_linking_result("orders", "dish")
+
+    plan = planner.plan(linking_result, catalog)
+
+    assert plan.requires_distinct is True
+    assert "建议去重" in plan.planning_summary
+
+
+def test_join_path_planner_reports_ambiguous_paths() -> None:
+    catalog = build_catalog()
+    catalog.relations.append(
+        SchemaRelation(
+            from_table="orders",
+            from_column="id",
+            to_table="user",
+            to_column="id",
+            relation_type="one-to-one",
+            confidence="low",
+            join_hint="测试用歧义关系",
+        )
+    )
+    linking_result = build_linking_result("orders", "user")
+    linking_result.matched_relations = [
+        relation
+        for relation in catalog.relations
+        if relation.from_table == "orders" and relation.to_table == "user"
+    ]
+
+    plan = JoinPathPlanner().plan(linking_result, catalog)
+
+    assert plan.ambiguous_paths == ["orders<->user"]
+    assert "候选歧义路径" in plan.planning_summary
 
 
 def test_join_path_planner_reports_unresolved_tables_when_no_path_exists() -> None:

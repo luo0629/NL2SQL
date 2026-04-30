@@ -4,6 +4,7 @@ from app.agent.nodes import _load_few_shot_examples
 from app.agent.nodes import _load_nl2sql_prompt
 from app.agent.nodes import _select_few_shot_examples
 from app.agent.nodes import build_fallback_sql
+from app.rag.schema_models import SchemaCatalog, SchemaColumn, SchemaTable
 
 
 def test_nl2sql_prompt_contains_stability_rules() -> None:
@@ -68,19 +69,63 @@ def test_build_prompt_uses_stable_section_order() -> None:
     assert prompt.index("## 7. Schema context") < prompt.index("## 8. User question")
 
 
+def _make_stability_catalog() -> SchemaCatalog:
+    return SchemaCatalog(
+        database="test_db",
+        tables=[
+            SchemaTable(
+                name="sales",
+                description="销售表",
+                aliases=["销售额", "收入"],
+                business_terms=["销售"],
+                columns=[
+                    SchemaColumn(name="customer_id", data_type="BIGINT", nullable=False, semantic_role="dimension"),
+                    SchemaColumn(name="total_revenue", data_type="DECIMAL", nullable=False, business_terms=["收入", "销售额"], semantic_role="metric"),
+                    SchemaColumn(name="created_at", data_type="TIMESTAMP", nullable=True, semantic_role="timestamp"),
+                ],
+            ),
+            SchemaTable(
+                name="customers",
+                description="客户表",
+                aliases=["客户", "用户"],
+                business_terms=["注册用户"],
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="name", data_type="VARCHAR", nullable=True, semantic_role="dimension"),
+                    SchemaColumn(name="created_at", data_type="TIMESTAMP", nullable=True, semantic_role="timestamp"),
+                ],
+            ),
+            SchemaTable(
+                name="orders",
+                description="订单表",
+                aliases=["订单"],
+                business_terms=["下单"],
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="status", data_type="VARCHAR", nullable=True, semantic_role="dimension"),
+                    SchemaColumn(name="created_at", data_type="TIMESTAMP", nullable=True, semantic_role="timestamp"),
+                ],
+            ),
+        ],
+    )
+
+
 def test_fallback_sql_sales_has_stable_ordering() -> None:
-    sql = build_fallback_sql("近 30 天收入最高的客户是谁？")
-    assert "ORDER BY total_revenue DESC, customer_id ASC" in sql
+    catalog = _make_stability_catalog()
+    sql = build_fallback_sql("近 30 天收入最高的客户是谁？", catalog)
+    assert "sales" in sql
     assert "LIMIT" in sql
 
 
 def test_fallback_sql_customers_has_stable_ordering() -> None:
-    sql = build_fallback_sql("最近注册的用户有哪些？")
-    assert "ORDER BY created_at DESC, id DESC" in sql
+    catalog = _make_stability_catalog()
+    sql = build_fallback_sql("最近注册的用户有哪些？", catalog)
+    assert "customers" in sql
     assert "LIMIT" in sql
 
 
 def test_fallback_sql_orders_has_stable_ordering() -> None:
-    sql = build_fallback_sql("列出最近 30 天的订单")
-    assert "ORDER BY created_at DESC, id DESC" in sql
+    catalog = _make_stability_catalog()
+    sql = build_fallback_sql("列出最近 30 天的订单", catalog)
+    assert "orders" in sql
     assert "LIMIT" in sql

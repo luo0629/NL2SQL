@@ -35,8 +35,20 @@ class SchemaLinker:
         self.catalog = catalog
         self._table_lookup = {table.name: table for table in catalog.tables}
 
-    def link(self, question: str) -> SchemaLinkingResult:
+    def link(self, question: str, query_understanding: dict[str, object] | None = None) -> SchemaLinkingResult:
         normalized_question = question.strip().lower()
+        if query_understanding:
+            target_mentions: list[str] = []
+            raw_targets = query_understanding.get("target_mentions", [])
+            if isinstance(raw_targets, list):
+                target_mentions.extend(
+                    str(value).strip()
+                    for value in raw_targets
+                    if isinstance(value, str) and len(value.strip()) >= 2
+                )
+            if target_mentions:
+                normalized_question = f"{normalized_question} {' '.join(target_mentions).lower()}".strip()
+
         if not normalized_question:
             return self._fallback_linking_result(question)
 
@@ -69,7 +81,21 @@ class SchemaLinker:
         )
 
     def _tokenize(self, question: str) -> set[str]:
-        return {token for token in re.split(r"[^a-z0-9_一-鿿]+", question) if token}
+        # 基础分词：按非字母数字中文字符切分
+        tokens = {token for token in re.split(r"[^a-z0-9_一-鿿]+", question) if token}
+
+        # 提取中文连续子串（2-4字），用于匹配复合词如"订单详情"、"菜品口味"
+        chinese_runs = re.findall(r"[一-鿿]+", question)
+        for run in chinese_runs:
+            if len(run) >= 2:
+                # 保留完整词
+                tokens.add(run)
+                # 也保留2-3字的子串，提升模糊匹配能力
+                for length in (2, 3):
+                    for i in range(len(run) - length + 1):
+                        tokens.add(run[i:i + length])
+
+        return tokens
 
     def _score_lookup(self, ranked_tables: list[tuple[SchemaTable, int]]) -> dict[str, int]:
         return {table.name: score for table, score in ranked_tables}
@@ -124,36 +150,36 @@ class SchemaLinker:
         tokens: set[str],
     ) -> int:
         score = 0
-        searchable_blob = " ".join(term.lower() for term in table.searchable_terms)
+        searchable_terms = {term.lower().strip() for term in table.searchable_terms if term.strip()}
         description = (table.description or "").lower()
-        alias_blob = " ".join(alias.lower() for alias in table.aliases)
-        business_blob = " ".join(term.lower() for term in table.business_terms)
+        alias_terms = {alias.lower().strip() for alias in table.aliases if alias.strip()}
+        business_terms = {term.lower().strip() for term in table.business_terms if term.strip()}
 
         if table.name.lower() in normalized_question:
             score += 10
         if description and description in normalized_question:
             score += 4
 
-        for alias in table.aliases:
-            lowered_alias = alias.lower().strip()
-            if lowered_alias and lowered_alias in normalized_question:
+        for alias in alias_terms:
+            if alias and alias in normalized_question:
                 score += 5
 
-        for business_term in table.business_terms:
-            lowered_term = business_term.lower().strip()
-            if lowered_term and lowered_term in normalized_question:
+        for business_term in business_terms:
+            if business_term and business_term in normalized_question:
                 score += 5
 
         for token in tokens:
+            if len(token) < 2:
+                continue
             if token == table.name.lower():
                 score += 6
-            if token in alias_blob:
+            if token in alias_terms:
                 score += 4
-            if token in business_blob:
+            if token in business_terms:
                 score += 4
-            if token in searchable_blob:
+            if token in searchable_terms:
                 score += 3
-            if token in description:
+            if description and token == description:
                 score += 2
 
         for column in table.columns:
@@ -172,26 +198,25 @@ class SchemaLinker:
         score = 0
         lowered_column_name = column_name.lower()
         lowered_column_description = (column_description or "").lower()
-        business_blob = " ".join(term.lower() for term in business_terms)
+        business_term_set = {term.lower().strip() for term in business_terms if term.strip()}
 
         if lowered_column_name in normalized_question:
             score += 4
         if lowered_column_description and lowered_column_description in normalized_question:
             score += 3
 
-        for business_term in business_terms:
-            lowered_term = business_term.lower().strip()
-            if lowered_term and lowered_term in normalized_question:
+        for business_term in business_term_set:
+            if business_term and business_term in normalized_question:
                 score += 4
 
         for token in tokens:
+            if len(token) < 2:
+                continue
             if token == lowered_column_name:
                 score += 3
-            if token in lowered_column_name:
+            if lowered_column_description and token == lowered_column_description:
                 score += 2
-            if lowered_column_description and token in lowered_column_description:
-                score += 2
-            if token in business_blob:
+            if token in business_term_set:
                 score += 3
 
         return score

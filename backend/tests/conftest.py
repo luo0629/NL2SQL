@@ -20,7 +20,13 @@ class StubLLMService(LLMService):
 
 class StubSQLExecutor(SQLExecutor):
     @override
-    async def execute(self, sql: str) -> SQLExecutionResult:
+    async def execute(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        max_rows: int | None = None,
+        timeout_seconds: float | None = None,
+    ) -> SQLExecutionResult:
         return SQLExecutionResult(
             rows=[{"id": 1, "name": "mock-row"}],
             row_count=1,

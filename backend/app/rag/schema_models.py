@@ -18,6 +18,7 @@ class SchemaTable(BaseModel):
     business_terms: list[str] = Field(default_factory=list)
     columns: list[SchemaColumn] = Field(default_factory=list)
     primary_keys: list[str] = Field(default_factory=list)
+    indexes: list[str] = Field(default_factory=list)
     searchable_terms: list[str] = Field(default_factory=list)
 
 

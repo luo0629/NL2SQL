@@ -20,6 +20,7 @@ from app.agent.nodes import (
 )
 from app.agent.state import AgentState
 from app.database.executor import SQLExecutor
+from app.rag.schema_models import SchemaCatalog
 from app.services.llm_service import LLMService
 from app.services.rag_service import RagService
 from app.validator.sql_validator import SQLValidator
@@ -54,12 +55,13 @@ def build_agent_graph(
     llm_service: LLMService,
     validator: SQLValidator,
     executor: SQLExecutor,
+    catalog: SchemaCatalog | None = None,
 ):
     graph_builder = StateGraph(AgentState)
 
     # LangGraph 节点默认接收 object，做类型收窄后转发给具体节点函数。
     def query_understanding_node(state: object) -> AgentState:
-        return query_understanding(cast(AgentState, state))
+        return query_understanding(cast(AgentState, state), llm_service, catalog)
 
     async def retrieve_schema_node(state: object) -> AgentState:
         return await retrieve_schema(cast(AgentState, state), rag_service)
@@ -77,16 +79,16 @@ def build_agent_graph(
         return build_semantic_brief(cast(AgentState, state))
 
     def sql_planning_node(state: object) -> AgentState:
-        return sql_planning(cast(AgentState, state))
+        return sql_planning(cast(AgentState, state), llm_service)
 
     def generate_sql_node(state: object) -> AgentState:
-        return generate_sql(cast(AgentState, state), llm_service)
+        return generate_sql(cast(AgentState, state), llm_service, catalog)
 
     def validate_sql_node(state: object) -> AgentState:
         return validate_sql(cast(AgentState, state), validator)
 
     def sql_repairing_node(state: object) -> AgentState:
-        return sql_repairing(cast(AgentState, state))
+        return sql_repairing(cast(AgentState, state), llm_service)
 
     async def execute_sql_node(state: object) -> AgentState:
         return await execute_sql(cast(AgentState, state), executor)
@@ -127,7 +129,7 @@ def build_agent_graph(
         },
     )
 
-    _ = graph_builder.add_edge("sql_repairing", "sql_planning")
+    _ = graph_builder.add_edge("sql_repairing", "generate_sql")
     _ = graph_builder.add_edge("execute_sql", "finalize_response")
     _ = graph_builder.add_edge("finalize_response", END)
 
@@ -139,6 +141,7 @@ def get_agent_graph(
     llm_service: LLMService,
     validator: SQLValidator,
     executor: SQLExecutor,
+    catalog: SchemaCatalog | None = None,
 ):
     """获取单例 Graph，首次调用时编译，后续复用。executor 变更时重新编译。"""
     global _compiled_graph, _graph_executor_key
@@ -146,7 +149,7 @@ def get_agent_graph(
     executor_key = (id(rag_service), id(llm_service), id(validator), id(executor))
     if _compiled_graph is None or _graph_executor_key != executor_key:
         _compiled_graph = build_agent_graph(
-            rag_service, llm_service, validator, executor
+            rag_service, llm_service, validator, executor, catalog
         )
         _graph_executor_key = executor_key
     return _compiled_graph
@@ -159,6 +162,9 @@ async def run_agent(
     validator: SQLValidator,
     executor: SQLExecutor,
 ) -> AgentState:
-    graph = get_agent_graph(rag_service, llm_service, validator, executor)
+    from app.services.rag_service import _get_schema_catalog
+
+    catalog = await _get_schema_catalog()
+    graph = get_agent_graph(rag_service, llm_service, validator, executor, catalog)
     initial_state: AgentState = {"question": question}
     return cast(AgentState, await graph.ainvoke(initial_state))
