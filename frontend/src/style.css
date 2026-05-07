@@ -440,7 +440,8 @@ button:focus-visible {
 }
 
 .sql-review,
-.notes {
+.notes,
+.debug-panel {
   display: grid;
   gap: 12px;
 }
@@ -646,13 +647,30 @@ textarea:disabled {
   line-height: 1.5;
 }
 
-.sql-card {
+.sql-card,
+.params-card,
+.debug-panel details {
   min-height: 180px;
   padding: 20px 22px;
   border: 1px solid var(--border);
   border-radius: 26px;
   background: var(--sql-card-gradient);
   overflow: auto;
+}
+
+.params-card {
+  min-height: 120px;
+}
+
+.debug-panel details {
+  min-height: 0;
+}
+
+.debug-panel summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 12px;
 }
 
 pre {
@@ -979,6 +997,10 @@ pre {
   .sql-review-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .debug-panel {
+    grid-column: auto;
   }
 
   .result-note,

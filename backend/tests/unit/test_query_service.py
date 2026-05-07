@@ -17,7 +17,13 @@ class StubLLMService(LLMService):
 
 class StubSQLExecutor(SQLExecutor):
     @override
-    async def execute(self, sql: str) -> SQLExecutionResult:
+    async def execute(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        max_rows: int | None = None,
+        timeout_seconds: float | None = None,
+    ) -> SQLExecutionResult:
         return SQLExecutionResult(
             rows=[{"id": 1, "name": "Alice"}],
             row_count=1,
@@ -37,7 +43,7 @@ async def test_agent_service_returns_mock_response() -> None:
         NLQueryRequest(question="近 30 天收入最高的客户是谁？")
     )
 
-    assert response.status == "mock"
+    assert response.status == "ready"
     assert "SELECT" in response.sql
     assert "DROP" not in response.sql
     assert response.explanation
@@ -45,3 +51,9 @@ async def test_agent_service_returns_mock_response() -> None:
     assert response.row_count == 1
     assert response.columns == ["id", "name"]
     assert response.execution_summary == "查询执行成功，共返回 1 行。"
+    assert response.debug is not None
+    assert "query_understanding" in response.debug
+    assert "schema_links" in response.debug
+    assert "join_paths" in response.debug
+    assert "sql_plan" in response.debug
+    assert response.debug["fallback"] == {"used": False}

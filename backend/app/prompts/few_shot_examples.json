@@ -1,22 +1,32 @@
 [
   {
     "question": "近 30 天收入最高的客户是谁？",
-    "sql": "SELECT customer_id, SUM(amount) AS total_revenue\nFROM sales\nWHERE created_at >= CURRENT_DATE - INTERVAL '30 days'\nGROUP BY customer_id\nORDER BY total_revenue DESC, customer_id ASC\nLIMIT 1;"
+    "sql": "SELECT customer_id, SUM(amount) AS total_revenue\nFROM sales\nWHERE created_at >= CURRENT_DATE - INTERVAL '30 days'\nGROUP BY customer_id\nORDER BY total_revenue DESC, customer_id ASC\nLIMIT 1;",
+    "tags": ["aggregation", "time-range", "top-n"]
   },
   {
     "question": "近 30 天收入最高的 10 个客户是谁？",
-    "sql": "SELECT customer_id, SUM(amount) AS total_revenue\nFROM sales\nWHERE created_at >= CURRENT_DATE - INTERVAL '30 days'\nGROUP BY customer_id\nORDER BY total_revenue DESC, customer_id ASC\nLIMIT 10;"
+    "sql": "SELECT customer_id, SUM(amount) AS total_revenue\nFROM sales\nWHERE created_at >= CURRENT_DATE - INTERVAL '30 days'\nGROUP BY customer_id\nORDER BY total_revenue DESC, customer_id ASC\nLIMIT 10;",
+    "tags": ["aggregation", "time-range", "top-n"]
   },
   {
     "question": "最近 30 天最新的 20 笔订单有哪些？",
-    "sql": "SELECT id, customer_id, total_amount, status, created_at\nFROM orders\nWHERE created_at >= CURRENT_DATE - INTERVAL '30 days'\nORDER BY created_at DESC, id DESC\nLIMIT 20;"
+    "sql": "SELECT id, customer_id, total_amount, status, created_at\nFROM orders\nWHERE created_at >= CURRENT_DATE - INTERVAL '30 days'\nORDER BY created_at DESC, id DESC\nLIMIT 20;",
+    "tags": ["detail", "time-range"]
   },
   {
     "question": "最近注册的 20 个客户是谁？",
-    "sql": "SELECT id, name, segment, created_at\nFROM customers\nORDER BY created_at DESC, id DESC\nLIMIT 20;"
+    "sql": "SELECT id, name, segment, created_at\nFROM customers\nORDER BY created_at DESC, id DESC\nLIMIT 20;",
+    "tags": ["detail"]
   },
   {
     "question": "列出最近 30 天的订单（最多 100 条）",
-    "sql": "SELECT id, customer_id, total_amount, status, created_at\nFROM orders\nWHERE created_at >= CURRENT_DATE - INTERVAL '30 days'\nORDER BY created_at DESC, id DESC\nLIMIT 100;"
+    "sql": "SELECT id, customer_id, total_amount, status, created_at\nFROM orders\nWHERE created_at >= CURRENT_DATE - INTERVAL '30 days'\nORDER BY created_at DESC, id DESC\nLIMIT 100;",
+    "tags": ["detail", "time-range"]
+  },
+  {
+    "question": "统计每个客户的订单总金额并按金额从高到低排序",
+    "sql": "SELECT customer_id, SUM(total_amount) AS total_spent\nFROM orders\nGROUP BY customer_id\nORDER BY total_spent DESC, customer_id ASC;",
+    "tags": ["aggregation", "top-n"]
   }
 ]

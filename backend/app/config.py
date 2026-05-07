@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     llm_model: str = "mock-nl2sql"
     zhipu_api_key: SecretStr | None = None
     zhipu_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
+    xiaomi_api_key: SecretStr | None = None
+    xiaomi_base_url: str = "https://api.xiaomimimo.com/v1"
 
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=ENV_FILE,

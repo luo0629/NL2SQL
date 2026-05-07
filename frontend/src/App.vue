@@ -5,6 +5,8 @@ type QueryRow = Record<string, unknown>
 
 type QueryResponse = {
   sql?: string
+  params?: unknown[]
+  debug?: Record<string, unknown> | null
   notes?: string | string[]
   explanation?: string
   status?: string
@@ -28,6 +30,8 @@ const sql = ref('')
 const notes = ref<string[]>([])
 const columns = ref<string[]>([])
 const rows = ref<QueryRow[]>([])
+const params = ref<unknown[]>([])
+const debugTrace = ref<Record<string, unknown> | null>(null)
 const executionSummary = ref('')
 const status = ref<StatusTone>('idle')
 const statusMessage = ref('等待输入。')
@@ -41,6 +45,8 @@ const derivedColumns = computed(() => {
   return firstRow ? Object.keys(firstRow) : []
 })
 const hasRenderableRows = computed(() => rows.value.length > 0 && derivedColumns.value.length > 0)
+const formattedParams = computed(() => (params.value.length > 0 ? JSON.stringify(params.value, null, 2) : '[]'))
+const formattedDebug = computed(() => (debugTrace.value ? JSON.stringify(debugTrace.value, null, 2) : ''))
 const isIdle = computed(() => status.value === 'idle' && !sql.value && rows.value.length === 0)
 
 
@@ -137,6 +143,8 @@ async function handleSubmit() {
   notes.value = []
   columns.value = []
   rows.value = []
+  params.value = []
+  debugTrace.value = null
   executionSummary.value = ''
 
   try {
@@ -161,12 +169,16 @@ async function handleSubmit() {
     )
     const resultColumns = normalizeColumns(data?.columns)
     const resultRows = normalizeRows(data?.rows)
+    const responseParams = Array.isArray(data?.params) ? data.params : []
+    const responseDebug = data?.debug && typeof data.debug === 'object' ? data.debug : null
     const summary = pickText(data?.execution_summary)
 
     sql.value = generatedSql || '-- 接口未返回 SQL。'
     notes.value = generatedNotes.length > 0 ? generatedNotes : ['本次响应没有附带说明。']
     columns.value = resultColumns
     rows.value = resultRows
+    params.value = responseParams
+    debugTrace.value = responseDebug
     executionSummary.value =
       summary ||
       (resultRows.length > 0
@@ -276,6 +288,7 @@ async function handleSubmit() {
                 <div class="meta-pills">
                   <span class="meta-pill">{{ status === 'success' ? visibleRowCount : '—' }} 行</span>
                   <span class="meta-pill">{{ status === 'success' ? derivedColumns.length : '—' }} 列</span>
+                  <span class="meta-pill">{{ status === 'success' ? `${params.length} 参数` : '— 参数' }}</span>
                 </div>
               </div>
 
@@ -331,6 +344,18 @@ async function handleSubmit() {
                 <div class="sql-card" aria-label="SQL 代码块">
                   <pre>{{ sql || '-- 生成结果会显示在这里。' }}</pre>
                 </div>
+                <div class="params-card" aria-label="SQL 参数">
+                  <p class="section-kicker">Params</p>
+                  <pre>{{ formattedParams }}</pre>
+                </div>
+              </section>
+
+              <section v-if="debugTrace" class="debug-panel" aria-label="调试追踪区">
+                <p class="section-kicker">Debug Trace</p>
+                <details>
+                  <summary>查看阶段调试信息</summary>
+                  <pre>{{ formattedDebug }}</pre>
+                </details>
               </section>
 
               <section v-if="notes.length > 0" class="notes" aria-label="结果说明区">

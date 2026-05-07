@@ -12,6 +12,10 @@ from app.schemas.sql import SQLExecutionResult
 from app.validator.sql_validator import SQLValidator
 
 
+class QueryExecutionTimeoutError(RuntimeError):
+    pass
+
+
 class SQLExecutor:
     def __init__(
         self,
@@ -22,13 +26,41 @@ class SQLExecutor:
         self.validator = validator or SQLValidator()
         self.result_limit = get_settings().query_result_limit
 
-    async def execute(self, sql: str) -> SQLExecutionResult:
+    async def execute(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        max_rows: int | None = None,
+        timeout_seconds: float | None = None,
+    ) -> SQLExecutionResult:
         self.validator.validate_read_only(sql)
+
+        sql_params = {
+            f"p{index}": value
+            for index, value in enumerate(params or [])
+        }
+        previous_limit = self.result_limit
+        if max_rows is not None:
+            self.result_limit = max_rows
 
         try:
             async with self.engine.connect() as connection:
-                result = await connection.execute(text(sql))
+                execution = connection.execute(text(sql), sql_params)
+                if timeout_seconds is not None:
+                    import asyncio
+
+                    result = await asyncio.wait_for(execution, timeout=timeout_seconds)
+                else:
+                    result = await execution
                 return self._build_execution_result(result)
+        except TimeoutError:
+            return SQLExecutionResult(
+                rows=[],
+                row_count=0,
+                columns=[],
+                truncated=False,
+                execution_summary="查询执行超时。",
+            )
         except SQLAlchemyError as error:
             return SQLExecutionResult(
                 rows=[],
@@ -37,6 +69,8 @@ class SQLExecutor:
                 truncated=False,
                 execution_summary=f"查询执行失败：{error.__class__.__name__}",
             )
+        finally:
+            self.result_limit = previous_limit
 
     def _build_execution_result(self, result: Result[object]) -> SQLExecutionResult:
         columns = list(result.keys())
