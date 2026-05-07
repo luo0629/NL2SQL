@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/index.md","reason":"检查后端职责边界和 agent 主链路是否符合项目结构"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"检查真实 schema、EXPLAIN、只读执行和 database_url 配置边界"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"检查验证重试、执行错误和 API 友好失败"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查测试覆盖和质量门禁"}
+{"file":".trellis/spec/frontend/index.md","reason":"若响应契约变化，检查前端同步"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"若前端调整，检查构建和状态展示"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查后端 API 与前端展示跨层一致性"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"检查是否删除冗余并复用现有基础能力"}

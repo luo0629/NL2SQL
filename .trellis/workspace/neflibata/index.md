@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
+- **Total Sessions**: 3
 - **Last Active**: 2026-05-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~71 | Active |
+| `journal-1.md` | ~106 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-05-07 | Design-driven NL2SQL agent refactor | `cc8e838`, `67dc263`, `4ba9551` | `main` |
 | 2 | 2026-05-07 | Universal NL2SQL execution pipeline | `6b525df` | `main` |
 | 1 | 2026-05-07 | Bootstrap Trellis spec initialization | - | `main` |
 <!-- @@@/auto:session-history -->

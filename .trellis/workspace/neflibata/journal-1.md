@@ -69,3 +69,38 @@ Implemented a more general NL2SQL generation and execution flow with SemanticQue
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Design-driven NL2SQL agent refactor
+
+**Date**: 2026-05-07
+**Task**: Design-driven NL2SQL agent refactor
+**Branch**: `main`
+
+### Summary
+
+Refactored SQLAgent to the design-driven six-node NL2SQL pipeline, added backend timeout boundaries, and removed retired SemanticQuery/sql_plan/linking legacy components.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cc8e838` | (see git log) |
+| `67dc263` | (see git log) |
+| `4ba9551` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

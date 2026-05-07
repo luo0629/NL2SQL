@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端 LangGraph、router、service、agent 改造需遵守后端总体规范"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"任务涉及真实 schema 获取、EXPLAIN 预检、SQL 执行和数据库安全边界"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"任务涉及 validation retry、执行失败和友好错误输出"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"实现阶段需要遵守后端测试和质量要求"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"后端响应字段可能影响前端查询展示"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"改造时应复用现有 LLMService、SQLExecutor、SQLValidator 和 schema sync 能力"}
