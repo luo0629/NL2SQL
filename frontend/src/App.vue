@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 
 type QueryRow = Record<string, unknown>
 
@@ -33,9 +33,13 @@ const rows = ref<QueryRow[]>([])
 const params = ref<unknown[]>([])
 const debugTrace = ref<Record<string, unknown> | null>(null)
 const executionSummary = ref('')
+const executionSkipped = ref(false)
 const status = ref<StatusTone>('idle')
 const statusMessage = ref('等待输入。')
 const errorMessage = ref('')
+const QUERY_TIMEOUT_MS = 60_000
+let activeRequestController: AbortController | null = null
+let activeRequestId = 0
 
 const loading = computed(() => status.value === 'loading')
 const visibleRowCount = computed(() => rows.value.length)
@@ -98,6 +102,16 @@ function normalizeRows(value: unknown): QueryRow[] {
   return value.filter((item): item is QueryRow => !!item && typeof item === 'object')
 }
 
+function didBackendSkipExecution(debug: Record<string, unknown> | null, summary: string): boolean {
+  const executionGate = debug?.execution_gate
+  const gateSkipped =
+    !!executionGate &&
+    typeof executionGate === 'object' &&
+    (executionGate as Record<string, unknown>).allowed === false
+
+  return gateSkipped || summary.includes('不自动查询数据库') || summary.includes('未自动查询数据库')
+}
+
 function renderCell(value: unknown): string {
   if (value == null || value === '') return '—'
 
@@ -126,6 +140,22 @@ async function readResponseBody(response: Response): Promise<unknown> {
   }
 }
 
+function isActiveRequest(requestId: number, controller: AbortController): boolean {
+  return activeRequestId === requestId && activeRequestController === controller
+}
+
+function buildNetworkErrorMessage(error: unknown): string {
+  if (error instanceof TypeError) {
+    return '无法连接到查询服务。请确认浏览器访问的是 Vite 前端 http://127.0.0.1:4242，后端监听 http://127.0.0.1:8787，且 /api 代理已生效。'
+  }
+
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return '无法连接到查询服务。'
+}
+
 async function handleSubmit() {
   const question = prompt.value.trim()
 
@@ -135,6 +165,10 @@ async function handleSubmit() {
     errorMessage.value = '问题不能为空。'
     return
   }
+
+  const requestId = activeRequestId + 1
+  activeRequestId = requestId
+  activeRequestController?.abort()
 
   status.value = 'loading'
   statusMessage.value = '正在生成 SQL…'
@@ -146,17 +180,28 @@ async function handleSubmit() {
   params.value = []
   debugTrace.value = null
   executionSummary.value = ''
+  executionSkipped.value = false
+
+  const controller = new AbortController()
+  activeRequestController = controller
+  const timeoutId = window.setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS)
 
   try {
     const response = await fetch('/api/query', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-request-id': `frontend-${Date.now()}-${requestId}`,
       },
       body: JSON.stringify({ question }),
+      signal: controller.signal,
     })
 
     const body = await readResponseBody(response)
+
+    if (!isActiveRequest(requestId, controller)) {
+      return
+    }
 
     if (!response.ok) {
       throw new Error(extractBodyMessage(body) || `请求失败（${response.status}）。`)
@@ -172,6 +217,8 @@ async function handleSubmit() {
     const responseParams = Array.isArray(data?.params) ? data.params : []
     const responseDebug = data?.debug && typeof data.debug === 'object' ? data.debug : null
     const summary = pickText(data?.execution_summary)
+    const responseStatus = pickText(data?.status)
+    const skippedExecution = didBackendSkipExecution(responseDebug, summary)
 
     sql.value = generatedSql || '-- 接口未返回 SQL。'
     notes.value = generatedNotes.length > 0 ? generatedNotes : ['本次响应没有附带说明。']
@@ -179,20 +226,59 @@ async function handleSubmit() {
     rows.value = resultRows
     params.value = responseParams
     debugTrace.value = responseDebug
+    executionSkipped.value = skippedExecution
     executionSummary.value =
       summary ||
-      (resultRows.length > 0
-        ? `当前展示 ${resultRows.length} 行结果。`
-        : '查询执行成功，但没有返回记录。')
+      (skippedExecution
+        ? '语义置信度不足，本次仅返回 SQL 草案。'
+        : resultRows.length > 0
+          ? `当前展示 ${resultRows.length} 行结果。`
+          : '查询执行成功，但没有返回记录。')
+
+    if (responseStatus === 'error') {
+      status.value = 'error'
+      statusMessage.value = '查询执行失败。'
+      errorMessage.value = pickText(data?.error_message, summary, data?.explanation) || '查询执行失败。'
+      return
+    }
+
     status.value = 'success'
-    statusMessage.value = resultRows.length > 0 ? '查询结果已返回。' : '查询完成，但没有返回记录。'
+    statusMessage.value = skippedExecution
+      ? '已生成 SQL 草案，未自动查询数据库。'
+      : resultRows.length > 0
+        ? '查询结果已返回。'
+        : '查询完成，但没有返回记录。'
   } catch (error) {
-    const message = error instanceof Error ? error.message : '无法连接到查询服务。'
+    if (!isActiveRequest(requestId, controller)) {
+      return
+    }
+
+    const isAbortError = error instanceof DOMException && error.name === 'AbortError'
+    const message = isAbortError
+      ? '查询请求超过 60 秒后已由前端取消。请确认后端服务可访问且查询耗时未超过前端超时阈值后重试。'
+      : buildNetworkErrorMessage(error)
     status.value = 'error'
-    statusMessage.value = '生成失败。'
+    statusMessage.value = isAbortError ? '请求已超时。' : '生成失败。'
     errorMessage.value = message
+  } finally {
+    window.clearTimeout(timeoutId)
+    if (isActiveRequest(requestId, controller)) {
+      activeRequestController = null
+
+      if (status.value === 'loading') {
+        status.value = 'error'
+        statusMessage.value = '生成失败。'
+        errorMessage.value = '查询请求已结束，但前端未收到可展示的响应。'
+      }
+    }
   }
 }
+
+onUnmounted(() => {
+  activeRequestId += 1
+  activeRequestController?.abort()
+  activeRequestController = null
+})
 </script>
 
 <template>
@@ -319,8 +405,10 @@ async function handleSubmit() {
                 </div>
               </div>
               <div v-else-if="status === 'success' && rows.length === 0" class="empty-state-group">
-                <p class="empty-state">查询执行成功，但没有返回记录。</p>
-                <p class="empty-hint">可以尝试缩短时间范围、放宽筛选条件，或者换一种提问方式。</p>
+                <p class="empty-state">{{ executionSkipped ? '本次未自动查询数据库。' : '查询执行成功，但没有返回记录。' }}</p>
+                <p class="empty-hint">
+                  {{ executionSkipped ? '请根据澄清提示补充业务对象、字段或筛选值后再执行。' : '可以尝试缩短时间范围、放宽筛选条件，或者换一种提问方式。' }}
+                </p>
               </div>
               <div v-else-if="isIdle" class="empty-state-group">
                 <p class="empty-state">提交后会在这里展示查询结果。</p>

@@ -11,7 +11,7 @@ def test_health_endpoint(client: TestClient) -> None:
 
 
 def test_query_endpoint(client: TestClient) -> None:
-    response = client.post("/api/query", json={"question": "找出最近的收入数据"})
+    response = client.post("/api/query", json={"question": "找出销量最高的商品"})
 
     assert response.status_code == 200
     payload = cast(dict[str, object], response.json())

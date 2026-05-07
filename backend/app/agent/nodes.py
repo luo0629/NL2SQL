@@ -16,6 +16,7 @@ from app.rag.schema_models import SchemaCatalog
 from app.rag.sql_generator import SQLGenerator
 from app.rag.sql_planner import SQLPlanner
 from app.rag.sql_repairer import SQLRepairer
+from app.rag.semantic_query import SemanticQueryBuilder
 from app.rag.value_linker import ValueLinker
 from app.services.rag_service import RagService
 from app.utils.exceptions import DangerousSQLError
@@ -482,11 +483,13 @@ def _build_sql_plan_prompt(
     schema_linking: dict[str, Any],
     value_links: list[dict[str, Any]],
     join_path_plan: dict[str, Any],
+    semantic_query: dict[str, Any],
     fallback_plan: dict[str, Any],
 ) -> str:
     return "\n".join([
         "You are a SQL planner for an NL2SQL agent.",
         "Return only one JSON object representing a SQL plan, not SQL text.",
+        "Use SemanticQuery as the primary business intent; SQL plan is only the render/debug compatibility layer.",
         "Use only tables, columns, joins and values that already appear in the provided context.",
         "Do not invent tables, columns, values, or joins.",
         "Keys: from_table, select, group_by, order_by, limit, distinct.",
@@ -499,6 +502,7 @@ def _build_sql_plan_prompt(
         f"Schema linking: {json.dumps(schema_linking, ensure_ascii=False)}",
         f"Value links: {json.dumps(value_links, ensure_ascii=False)}",
         f"Join path plan: {json.dumps(join_path_plan, ensure_ascii=False)}",
+        f"SemanticQuery: {json.dumps(semantic_query, ensure_ascii=False)}",
         f"Deterministic fallback SQL plan: {json.dumps(fallback_plan, ensure_ascii=False)}",
     ])
 
@@ -820,16 +824,41 @@ def build_semantic_brief(state: AgentState) -> AgentState:
     return {"business_semantic_brief": business_semantic_brief_result}
 
 
+def build_semantic_query(state: AgentState) -> AgentState:
+    semantic_query = SemanticQueryBuilder().build(
+        query_understanding=cast(dict[str, Any], state.get("query_understanding", {})),
+        schema_linking=cast(dict[str, Any], state.get("schema_linking", {})),
+        value_links=cast(list[dict[str, Any]], state.get("value_links", [])),
+        join_path_plan=cast(dict[str, Any], state.get("join_path_plan", {})),
+        business_semantic_brief=cast(dict[str, Any], state.get("business_semantic_brief", {})),
+    ).model_dump()
+
+    threshold = 0.35
+    allowed = float(semantic_query.get("confidence", 0.0)) >= threshold
+    execution_gate = {
+        "allowed": allowed,
+        "confidence": semantic_query.get("confidence", 0.0),
+        "threshold": threshold,
+        "reasons": semantic_query.get("confidence_reasons", []),
+        "clarification_prompts": semantic_query.get("clarification_prompts", []),
+    }
+    if not allowed:
+        execution_gate["summary"] = "语义绑定或连表规划置信度不足，已生成 SQL 草案但不会自动查询数据库。"
+    return {"semantic_query": semantic_query, "execution_gate": execution_gate}
+
+
 def sql_planning(state: AgentState, llm_service: LLMService) -> AgentState:
     query_understanding = cast(dict[str, Any], state.get("query_understanding", {}))
     schema_linking = cast(dict[str, Any], state.get("schema_linking", {}))
     value_links = cast(list[dict[str, Any]], state.get("value_links", []))
     join_path_plan = cast(dict[str, Any], state.get("join_path_plan", {}))
+    semantic_query = cast(dict[str, Any], state.get("semantic_query", {}))
     fallback_plan = SQLPlanner().build(
         query_understanding=query_understanding,
         schema_linking=schema_linking,
         value_links=value_links,
         join_path_plan=join_path_plan,
+        semantic_query=semantic_query,
     ).model_dump()
 
     model = llm_service.build_chat_model()
@@ -845,6 +874,7 @@ def sql_planning(state: AgentState, llm_service: LLMService) -> AgentState:
             schema_linking,
             value_links,
             join_path_plan,
+            semantic_query,
             fallback_plan,
         ),
     )
@@ -865,6 +895,63 @@ def sql_repairing(state: AgentState, llm_service: LLMService) -> AgentState:
     repair_attempts = state.get("repair_attempts", 0) + 1
     validation_issues = cast(list[dict[str, Any]], state.get("validation_issues", []))
     current_plan = cast(dict[str, Any], state.get("sql_plan", {}))
+    execution_error = cast(dict[str, Any], state.get("execution_error", {}))
+    if execution_error and not validation_issues:
+        debug_trace = dict(state.get("debug_trace", {}))
+        model = llm_service.build_chat_model()
+        if model is not None:
+            payload = _invoke_model_json(
+                model,
+                _build_sql_repair_prompt(
+                    state.get("question", ""),
+                    cast(list[str], state.get("schema_context", [])),
+                    current_plan,
+                    [{"code": "EXECUTION_FAILED", "message": execution_error.get("summary", "查询执行失败。"), "repairable": True}],
+                ),
+            )
+            if payload is not None:
+                repaired_plan = _normalize_sql_plan_candidate(
+                    payload,
+                    current_plan,
+                    cast(dict[str, Any], state.get("schema_linking", {})),
+                    cast(list[dict[str, Any]], state.get("value_links", [])),
+                )
+                debug_trace["last_repair"] = {
+                    "attempt": repair_attempts,
+                    "repaired": True,
+                    "fatal": False,
+                    "summary": "执行失败后已通过 LLM 重写 SQL Plan。",
+                    "mode": "llm_execution_error",
+                    "execution_error": execution_error,
+                }
+                return {
+                    "sql_plan": repaired_plan,
+                    "sql_params": cast(list[object], repaired_plan.get("params", [])),
+                    "retry_count": retry_count,
+                    "repair_attempts": repair_attempts,
+                    "debug_trace": debug_trace,
+                    "execution_error": {},
+                    "validation_errors": [],
+                    "validation_issues": [],
+                }
+        debug_trace["last_repair"] = {
+            "attempt": repair_attempts,
+            "repaired": False,
+            "fatal": True,
+            "summary": "查询执行失败，当前没有可用的安全自动修复策略。",
+            "mode": "controlled_execution_failure",
+            "execution_error": execution_error,
+        }
+        return {
+            "retry_count": retry_count,
+            "repair_attempts": repair_attempts,
+            "debug_trace": debug_trace,
+            "status": "error",
+            "execution_error": {},
+            "execution_summary": str(execution_error.get("summary") or "查询执行失败，已停止自动重试。"),
+            "explanation": "查询执行失败，已停止自动重试；请根据 schema 绑定和筛选条件调整问题。",
+        }
+
     repair_result = SQLRepairer().repair(current_plan, validation_issues)
     debug_trace = dict(state.get("debug_trace", {}))
 
@@ -942,12 +1029,19 @@ def generate_sql(state: AgentState, llm_service: LLMService, catalog: SchemaCata
     sql_plan = cast(dict[str, Any], state.get("sql_plan", {}))
     generated_sql = SQLGenerator().generate(sql_plan)
     if generated_sql is not None:
+        execution_gate = cast(dict[str, Any], state.get("execution_gate", {}))
+        gate_summary = ""
+        if execution_gate and not execution_gate.get("allowed", True):
+            prompts = execution_gate.get("clarification_prompts", [])
+            prompt_text = " ".join(str(item) for item in prompts[:2]) if isinstance(prompts, list) else ""
+            gate_summary = f"语义置信度 {execution_gate.get('confidence')} 低于阈值 {execution_gate.get('threshold')}，本次仅返回 SQL 草案，不自动查询数据库。{prompt_text}"
         return {
             "sql": generated_sql.sql,
             "sql_params": generated_sql.params,
             "status": "ready",
             "used_fallback": False,
-            "explanation": "已根据结构化 SQL Plan 生成参数化 SQL，接下来会进入只读安全校验。",
+            "explanation": gate_summary or "已根据 SemanticQuery 生成参数化 SQL，接下来会进入只读安全校验和阈值执行门控。",
+            "execution_summary": gate_summary if gate_summary else state.get("execution_summary", ""),
         }
 
     question = state.get("question", "")
@@ -1017,10 +1111,12 @@ async def execute_sql(state: AgentState, executor: SQLExecutor) -> AgentState:
             "truncated": False if is_error else result.truncated,
             "execution_time_ms": round(elapsed_ms, 2),
             "execution_summary": execution_summary,
+            "execution_error": {"summary": execution_summary} if is_error else {},
             "explanation": f"SQL 执行出错：{execution_summary}" if is_error else state.get("explanation", ""),
         }
     except Exception as error:
         elapsed_ms = (time.monotonic() - started_at) * 1000
+        summary = f"执行失败：{error.__class__.__name__}"
         return {
             "status": "error",
             "rows": [],
@@ -1028,8 +1124,9 @@ async def execute_sql(state: AgentState, executor: SQLExecutor) -> AgentState:
             "row_count": 0,
             "truncated": False,
             "execution_time_ms": round(elapsed_ms, 2),
-            "execution_summary": f"执行失败：{error}",
-            "explanation": f"SQL 执行出错：{error}",
+            "execution_summary": summary,
+            "execution_error": {"summary": summary},
+            "explanation": summary,
         }
 
 
@@ -1048,9 +1145,13 @@ def finalize_response(state: AgentState) -> AgentState:
     if validation_errors:
         status = "error"
         explanation = f"SQL 校验未通过：{validation_errors[0]}。"
-    elif execution_summary.startswith("查询执行失败") or execution_summary.startswith("查询执行超时"):
+    elif execution_summary.startswith("查询执行失败") or execution_summary.startswith("查询执行超时") or execution_summary.startswith("执行失败"):
         status = "error"
         explanation = execution_summary
+
+    execution_gate = cast(dict[str, Any], state.get("execution_gate", {}))
+    if execution_gate and not execution_gate.get("allowed", True) and not execution_summary:
+        execution_summary = cast(str, execution_gate.get("summary", "语义置信度不足，未自动查询数据库。"))
 
     if schema_context:
         explanation = (
@@ -1076,6 +1177,8 @@ def finalize_response(state: AgentState) -> AgentState:
             "schema_links": state.get("schema_linking", {}),
             "value_links": state.get("value_links", []),
             "join_paths": state.get("join_path_plan", {}),
+            "semantic_query": state.get("semantic_query", {}),
+            "execution_gate": state.get("execution_gate", {}),
             "sql_plan": state.get("sql_plan", {}),
             "validation_errors": validation_errors,
             "validation_issues": validation_issues,
@@ -1087,12 +1190,12 @@ def finalize_response(state: AgentState) -> AgentState:
                 "summary": execution_summary,
             },
             "schema_context_count": len(schema_context),
-            "confidence": state.get("join_path_plan", {}).get("confidence", 0.0),
+            "confidence": state.get("semantic_query", {}).get("confidence", 0.0),
         }
     )
 
-    result: AgentState = {"explanation": explanation, "debug_trace": debug_trace, "status": status}
-    if status == "error":
+    result: AgentState = {"explanation": explanation, "debug_trace": debug_trace, "status": status, "execution_summary": execution_summary}
+    if status == "error" or (execution_gate and not execution_gate.get("allowed", True)):
         result["rows"] = []
         result["columns"] = []
         result["row_count"] = 0

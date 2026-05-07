@@ -54,6 +54,34 @@ class StubSQLExecutor(SQLExecutor):
         )
 
 
+class ExplodingSQLExecutor(SQLExecutor):
+    async def execute(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        max_rows: int | None = None,
+        timeout_seconds: float | None = None,
+    ) -> SQLExecutionResult:
+        raise RuntimeError("connection string should not leak")
+
+
+class CountingExplodingSQLExecutor(SQLExecutor):
+    calls: int
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def execute(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        max_rows: int | None = None,
+        timeout_seconds: float | None = None,
+    ) -> SQLExecutionResult:
+        self.calls += 1
+        raise RuntimeError("database_url=mysql://secret should not leak")
+
+
 class WeakPlanRagService(RagService):
     async def build_query_schema_plan(self, question: str, query_understanding: dict[str, object] | None = None, refresh_schema: bool = False):
         plan = await super().build_query_schema_plan(question)
@@ -181,3 +209,56 @@ async def test_agent_graph_prefers_llm_sql_plan_when_available() -> None:
     assert state["sql_plan"]["from_table"] == "dish"
     assert state["sql_plan"]["limit"] == 3
     assert state["sql_plan"]["provenance"]["from_table"] == "schema_linking"
+
+
+@pytest.mark.anyio
+async def test_agent_graph_gates_low_confidence_without_execution() -> None:
+    reset_agent_graph()
+
+    state = await run_agent(
+        question="查询客户分类和用户信息",
+        rag_service=WeakPlanRagService(),
+        llm_service=StubLLMService(),
+        validator=SQLValidator(),
+        executor=ExplodingSQLExecutor(),
+    )
+
+    assert state["execution_gate"]["allowed"] is False
+    assert state["rows"] == []
+    assert state["row_count"] == 0
+    assert "SQL" in state["explanation"]
+
+
+@pytest.mark.anyio
+async def test_agent_graph_sanitizes_execution_failures() -> None:
+    reset_agent_graph()
+
+    state = await run_agent(
+        question="查询起售菜品前三名",
+        rag_service=StubRagService(),
+        llm_service=FakeLLMService(),
+        validator=SQLValidator(),
+        executor=ExplodingSQLExecutor(),
+    )
+
+    assert state["status"] == "error"
+    assert "RuntimeError" in state["execution_summary"]
+    assert "connection string should not leak" not in state["execution_summary"]
+
+
+@pytest.mark.anyio
+async def test_agent_graph_stops_after_controlled_execution_failure_without_model() -> None:
+    reset_agent_graph()
+    executor = CountingExplodingSQLExecutor()
+
+    state = await run_agent(
+        question="找出销量最高的商品",
+        rag_service=StubRagService(),
+        llm_service=StubLLMService(),
+        validator=SQLValidator(),
+        executor=executor,
+    )
+
+    assert state["status"] == "error"
+    assert executor.calls == 1
+    assert "database_url" not in state["execution_summary"]

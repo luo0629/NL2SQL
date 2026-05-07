@@ -18,6 +18,12 @@ class AgentState(TypedDict, total=False):
     join_path_plan: dict[str, Any]
     # 业务语义说明
     business_semantic_brief: dict[str, Any]
+    # 主语义中间表示，承载 intent / entities / metrics / filters / confidence 等信息
+    semantic_query: dict[str, Any]
+    # 执行门控结果，高置信度才自动查库
+    execution_gate: dict[str, Any]
+    # 执行错误修复/重试上下文
+    execution_error: dict[str, Any]
     # schema linking 阶段摘要
     linking_summary: str
     # join planning 阶段摘要

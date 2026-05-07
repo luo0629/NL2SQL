@@ -73,3 +73,64 @@ Do not write spec or code that assumes Zhipu is the only real-model path.
 
 - Forgetting that an execution failure may still produce a valid JSON response body with `status="error"`
 - Updating response status semantics in `app/schemas/query.py` without aligning frontend handling in `frontend/src/App.vue`
+
+---
+
+## Scenario: NL2SQL execution gate and repair failure
+
+### 1. Scope / Trigger
+
+- Trigger: a generated SQL statement may be skipped, executed, repaired, or failed inside the agent graph.
+- Applies to: `validate_sql`, `sql_repairing`, `execute_sql`, graph routing, and `NLQueryResponse` mapping.
+
+### 2. Signatures
+
+- Response status remains `Literal["mock", "ready", "error"]` unless `app/schemas/query.py` and frontend handling are changed together.
+- Debug gate shape: `debug.execution_gate.allowed: bool`, `debug.execution_gate.reasons: list[str]`.
+- Execution error state: `AgentState.execution_error: dict[str, object]` for controlled retry/failure decisions.
+
+### 3. Contracts
+
+- Low-confidence SQL is not an HTTP exception and not necessarily `status="error"`; it is a controlled non-execution response with an explanation.
+- Runtime SQL failure should be converted to `status="error"` with sanitized `execution_summary` and optional repair attempt metadata.
+- If repair cannot safely produce a new plan, the graph must route to `finalize_response` instead of generating and executing again.
+- Never expose raw stack traces, connection URLs, credentials, hostnames, or full driver exception text to clients.
+
+### 4. Validation & Error Matrix
+
+- `execution_gate.allowed=false` -> skip executor, return explanation/clarification.
+- `DangerousSQLError` -> validation issue, repair only if marked repairable.
+- SQL timeout -> `status="error"`, summary says timeout.
+- SQLAlchemy error -> `status="error"`, summary includes error class only.
+- Repair node returns terminal error -> route directly to `finalize_response`.
+
+### 5. Good/Base/Bad Cases
+
+- Good: failed execution is attempted once for controlled repair, then either succeeds or returns sanitized failure.
+- Base: model unavailable and deterministic repair cannot fix the failure, so the response fails cleanly without re-querying.
+- Bad: graph loops from terminal repair failure back into `generate_sql`, causing repeated database calls.
+
+### 6. Tests Required
+
+- Graph: execution failure with no safe repair calls the executor only once.
+- Graph: sanitized error summary does not contain `database_url` or raw connection details.
+- Integration: `status="error"` still returns JSON body matching `NLQueryResponse`.
+- Frontend/build: `status="error"` is displayed as failure even when HTTP status is 200.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+graph_builder.add_edge("sql_repairing", "generate_sql")
+```
+
+#### Correct
+
+```python
+graph_builder.add_conditional_edges(
+    "sql_repairing",
+    _after_sql_repairing,
+    {"generate_sql": "generate_sql", "finalize_response": "finalize_response"},
+)
+```
