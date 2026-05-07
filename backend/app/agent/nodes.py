@@ -122,6 +122,18 @@ def _quote_identifier(identifier: str) -> str:
     return "`" + identifier.replace("`", "``") + "`"
 
 
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        text = value.strip()
+        key = text.lower()
+        if text and key not in seen:
+            seen.add(key)
+            result.append(text)
+    return result
+
+
 def _normalize_sql(candidate: str) -> str:
     cleaned = candidate.strip()
     if cleaned.startswith("```"):
@@ -141,6 +153,165 @@ def _catalog_semantics(catalog: SchemaCatalog | None) -> BusinessSemanticLayer |
     return catalog.business_semantics if catalog and catalog.business_semantics else None
 
 
+_LOW_VALUE_SEMANTIC_TERMS = {
+    "id",
+    "主键",
+    "名称",
+    "名字",
+    "name",
+    "status",
+    "type",
+    "sort",
+    "image",
+    "description",
+    "remark",
+    "create_time",
+    "update_time",
+    "create_user",
+    "update_user",
+    "deleted",
+}
+
+_EXPLICIT_IDENTIFIER_TERMS = (
+    "id",
+    "编号",
+    "代码",
+    "编码",
+    "号码",
+    "单号",
+    "code",
+    " no",
+    "number",
+)
+_INTERNAL_AUDIT_COLUMNS = {
+    "create_user",
+    "update_user",
+    "created_by",
+    "updated_by",
+    "creator_id",
+    "updater_id",
+    "created_user_id",
+    "updated_user_id",
+    "deleted",
+    "is_deleted",
+    "delete_flag",
+}
+_INTERNAL_AUDIT_TIME_COLUMNS = {
+    "create_time",
+    "update_time",
+    "created_at",
+    "updated_at",
+    "create_date",
+    "update_date",
+    "modified_at",
+    "modified_time",
+}
+_DISPLAY_NAME_TOKENS = ("name", "title", "label", "subject", "summary", "description", "detail", "remark")
+_BUSINESS_VALUE_TOKENS = (
+    "amount",
+    "price",
+    "total",
+    "status",
+    "time",
+    "date",
+    "quantity",
+    "qty",
+    "count",
+    "number",
+    "phone",
+    "type",
+)
+
+
+def _is_low_value_semantic_term(term: str) -> bool:
+    normalized = term.strip().lower()
+    if not normalized:
+        return True
+    if normalized in _LOW_VALUE_SEMANTIC_TERMS:
+        return True
+    if normalized.endswith("_id") or normalized.endswith("id"):
+        return True
+    return len(normalized) <= 1
+
+
+def _question_explicitly_requests_identifier(question: str) -> bool:
+    normalized = f" {(question or '').lower()} "
+    return any(term in normalized for term in _EXPLICIT_IDENTIFIER_TERMS)
+
+
+def _is_identifier_like_column_name(column_name: str) -> bool:
+    normalized = column_name.lower()
+    return normalized == "id" or normalized.endswith("_id") or normalized.endswith("_code") or normalized.endswith("_no") or normalized == "code"
+
+
+def _is_internal_output_column(column: Any) -> bool:
+    name = str(getattr(column, "name", "")).lower()
+    role = str(getattr(column, "semantic_role", "") or "").lower()
+    if role in {"identifier", "foreign_key", "internal"}:
+        return True
+    if _is_identifier_like_column_name(name):
+        return True
+    if name in _INTERNAL_AUDIT_COLUMNS or name in _INTERNAL_AUDIT_TIME_COLUMNS:
+        return True
+    return False
+
+
+def _column_output_hint(column: Any) -> str:
+    name = str(getattr(column, "name", "")).lower()
+    role = str(getattr(column, "semantic_role", "") or "").lower()
+    if role == "foreign_key" or name.endswith("_id"):
+        return "join/filter/internal; do not select by default"
+    if role in {"identifier", "internal"} or _is_identifier_like_column_name(name) or name in _INTERNAL_AUDIT_COLUMNS:
+        return "internal identifier; do not select by default"
+    if name in _INTERNAL_AUDIT_TIME_COLUMNS:
+        return "audit timestamp; select only when the user asks for creation/update time"
+    return "business-readable"
+
+
+def _display_column_rank(column: Any, *, include_internal: bool = False) -> tuple[int, int]:
+    name = str(getattr(column, "name", "")).lower()
+    role = str(getattr(column, "semantic_role", "") or "").lower()
+    if include_internal and (role in {"identifier", "foreign_key"} or _is_identifier_like_column_name(name)):
+        return (-1, 0)
+    if not include_internal and _is_internal_output_column(column):
+        return (90, 0)
+    if role == "dimension" and any(token in name for token in _DISPLAY_NAME_TOKENS):
+        return (0, 0)
+    if any(token in name for token in _DISPLAY_NAME_TOKENS):
+        return (1, 0)
+    if role in {"metric", "dimension", "timestamp"}:
+        return (2, 0)
+    if any(token in name for token in _BUSINESS_VALUE_TOKENS):
+        return (3, 0)
+    if _is_internal_output_column(column):
+        return (80, 0)
+    return (10, 0)
+
+
+def _select_display_columns(table: SchemaTable, question: str, limit: int = 5) -> list[str]:
+    include_internal = _question_explicitly_requests_identifier(question)
+    ranked = sorted(
+        enumerate(table.columns),
+        key=lambda item: (*_display_column_rank(item[1], include_internal=include_internal), item[0]),
+    )
+    selected = [column.name for _index, column in ranked if include_internal or not _is_internal_output_column(column)]
+    if selected:
+        return selected[:limit]
+    fallback = [column.name for column in table.columns[:limit]]
+    return fallback or ["*"]
+
+
+def _semantic_item_matches_question(name: str, aliases: list[str], question: str) -> bool:
+    if not question:
+        return False
+    normalized = question.lower()
+    for term in [name, *aliases]:
+        candidate = term.strip().lower()
+        if candidate and not _is_low_value_semantic_term(candidate) and candidate in normalized:
+            return True
+    return False
+
+
 def _semantic_matches(question: str, semantics: BusinessSemanticLayer | None, table_names: set[str] | None = None, limit: int = 20) -> list[dict[str, Any]]:
     if semantics is None:
         return []
@@ -148,6 +319,8 @@ def _semantic_matches(question: str, semantics: BusinessSemanticLayer | None, ta
     matches: list[dict[str, Any]] = []
     allowed = table_names or set()
     for term in semantics.terms:
+        if _is_low_value_semantic_term(term.term):
+            continue
         if term.term.lower() not in normalized:
             continue
         if allowed and not any(table in allowed for table in term.tables):
@@ -177,23 +350,39 @@ def _render_semantic_context(semantics: BusinessSemanticLayer | None, selected_t
             lines.append(
                 f"- {item['term']} ({item['kind']}): tables={', '.join(item['tables'])}; columns={', '.join(item['columns'])}; sources={', '.join(item['sources'])}"
             )
-    metrics = [metric for metric in semantics.metrics if metric.table in selected_table_names][:12]
+    metrics = [
+        metric
+        for metric in semantics.metrics
+        if metric.table in selected_table_names and _semantic_item_matches_question(metric.name, metric.aliases, question)
+    ][:8]
     if metrics:
         lines.append("Business metrics:")
         for metric in metrics:
             expr = f"; expression={metric.expression}" if metric.expression else ""
             lines.append(f"- {metric.name}: {metric.table}.{metric.column}; aliases={', '.join(metric.aliases)}{expr}; source={metric.source}")
-    dimensions = [dimension for dimension in semantics.dimensions if dimension.table in selected_table_names][:12]
+    dimensions = [
+        dimension
+        for dimension in semantics.dimensions
+        if dimension.table in selected_table_names and _semantic_item_matches_question(dimension.name, dimension.aliases, question)
+    ][:8]
     if dimensions:
         lines.append("Business dimensions:")
         for dimension in dimensions:
             lines.append(f"- {dimension.name}: {dimension.table}.{dimension.column}; aliases={', '.join(dimension.aliases)}; source={dimension.source}")
-    enums = [enum for enum in semantics.enums if enum.table in selected_table_names][:10]
+    enums = [
+        enum
+        for enum in semantics.enums
+        if enum.table in selected_table_names and _semantic_item_matches_question(enum.name, enum.aliases + list(enum.values.values()), question)
+    ][:6]
     if enums:
         lines.append("Business enums:")
         for enum in enums:
             lines.append(f"- {enum.name}: {enum.table}.{enum.column}; values={json.dumps(enum.values, ensure_ascii=False)}; source={enum.source}")
-    filters = [item for item in semantics.default_filters if item.table in selected_table_names][:8]
+    filters = [
+        item
+        for item in semantics.default_filters
+        if item.table in selected_table_names and _semantic_item_matches_question(item.name, item.aliases, question)
+    ][:6]
     if filters:
         lines.append("Default filters from validated overrides:")
         for item in filters:
@@ -213,13 +402,42 @@ def _table_score(question: str, table: SchemaTable, semantics: BusinessSemanticL
         column_terms = [column.name, column.description or "", *(column.business_terms or [])]
         for term in column_terms:
             term = term.strip()
-            if term and term.lower() in normalized:
+            if term and not _is_low_value_semantic_term(term) and term.lower() in normalized:
                 score += 2
     if semantics is not None:
         for signal in semantics.terms:
+            if _is_low_value_semantic_term(signal.term):
+                continue
             if table.name in signal.tables and signal.term.lower() in normalized:
                 score += 8 if "override" in signal.sources else 4
     return score
+
+
+def _expand_selected_tables_with_relations(selected: list[str], catalog: SchemaCatalog | None, limit: int = 4) -> list[str]:
+    if catalog is None or len(selected) < 2 or len(selected) >= limit:
+        return selected[:limit]
+    selected_set = set(selected)
+    expanded = list(selected)
+
+    # Preserve real-schema join ability without broadening single-table queries:
+    # add only a one-hop bridge table that connects two already-selected tables.
+    relation_pairs = [({relation.from_table, relation.to_table}, relation) for relation in catalog.relations]
+    for first_endpoints, _first_relation in relation_pairs:
+        if len(expanded) >= limit:
+            break
+        bridge_candidates = first_endpoints - selected_set
+        if len(bridge_candidates) != 1 or not (first_endpoints & selected_set):
+            continue
+        bridge = next(iter(bridge_candidates))
+        for second_endpoints, _second_relation in relation_pairs:
+            if bridge not in second_endpoints:
+                continue
+            if second_endpoints & (selected_set - first_endpoints):
+                expanded.append(bridge)
+                selected_set.add(bridge)
+                break
+
+    return expanded[:limit]
 
 
 def _fallback_relevant_tables(question: str, catalog: SchemaCatalog | None, limit: int = 4) -> list[str]:
@@ -231,16 +449,19 @@ def _fallback_relevant_tables(question: str, catalog: SchemaCatalog | None, limi
     selected = [name for name, score, _index in sorted(scored, key=lambda item: (-item[1], item[2])) if score > 0]
     if not selected:
         selected = [table.name for table in tables]
-    return selected[:limit]
+    return _expand_selected_tables_with_relations(selected[:limit], catalog, limit=limit)
 
 
 def _build_intent_prompt(question: str, table_names: list[str], catalog: SchemaCatalog | None) -> str:
     table_summaries: list[str] = []
     semantics = _catalog_semantics(catalog)
     for table in _catalog_tables(catalog):
-        terms = [table.description or "", *table.aliases, *table.business_terms]
-        semantic_terms = [term.term for term in semantics.terms if table.name in term.tables][:12] if semantics else []
-        summary = "、".join(term for term in [*terms, *semantic_terms] if term) or "无补充说明"
+        terms = [table.description or "", *table.aliases, *table.business_terms, *table.searchable_terms]
+        semantic_terms = [
+            item["term"]
+            for item in _semantic_matches(question, semantics, {table.name}, limit=6)
+        ] if semantics else []
+        summary = "、".join(term for term in _dedupe([*terms, *semantic_terms]) if term) or "无补充说明"
         table_summaries.append(f"- {table.name}: {summary}")
     matched_semantics = _render_semantic_context(semantics, set(table_names), question)
     return "\n".join(
@@ -282,7 +503,7 @@ def _build_intent_result(
         if isinstance(raw_tables, list):
             filtered = [str(item).strip() for item in raw_tables if str(item).strip() in allowed]
             if filtered:
-                relevant_tables = list(dict.fromkeys(filtered))[:4]
+                relevant_tables = _expand_selected_tables_with_relations(list(dict.fromkeys(filtered))[:4], catalog, limit=4)
 
     semantic_signals = _semantic_matches(question, _catalog_semantics(catalog), set(relevant_tables))
     debug_trace = dict(state.get("debug_trace", {}))
@@ -349,10 +570,13 @@ def _format_table_schema(
         lines.append(f"Comment: {table.description}")
     if table.primary_keys:
         lines.append(f"Primary keys: {', '.join(_quote_identifier(key) for key in table.primary_keys)}")
-    semantic_context = _render_semantic_context(_catalog_semantics(catalog), {table.name})
-    if semantic_context:
-        lines.append("Business semantics:")
-        lines.append(semantic_context)
+    display_columns = _select_display_columns(table, "", limit=6)
+    if display_columns and display_columns != ["*"]:
+        lines.append(
+            "Preferred SELECT output columns: "
+            + ", ".join(_quote_identifier(column) for column in display_columns)
+            + " (prefer these business-readable fields over internal IDs unless the user explicitly asks for IDs/codes/numbers)"
+        )
     lines.append("Columns:")
     for column in table.columns:
         attrs = [column.data_type]
@@ -363,6 +587,7 @@ def _format_table_schema(
             attrs.append(f"default={column.default}")
         if column.semantic_role:
             attrs.append(f"role={column.semantic_role}")
+        attrs.append(f"output={_column_output_hint(column)}")
         if column.description:
             attrs.append(f"comment={column.description}")
         if column.business_terms:
@@ -428,6 +653,8 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
         "硬性规则：只能生成只读 SELECT/WITH 查询；禁止 INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/TRUNCATE/GRANT/EXEC/SLEEP/BENCHMARK。",
         "所有表名和字段名必须用反引号包裹。",
         "只能使用 schema_context 中出现的表和字段；业务语义只用于解释同义词、指标、枚举和默认过滤，不能引入未出现在 schema_context 的表字段。",
+        "SELECT 输出默认优先选择 schema_context 标注的 Preferred SELECT output columns 或 output=business-readable 字段，例如 name/title/amount/status/time/description。",
+        "id、*_id、create_user、update_user、create_time、update_time 等 output=internal/join/filter/audit 字段仍可用于 JOIN、WHERE、ORDER BY 和校验，但除非用户明确询问 ID/编号/code/no/number 或没有更可读字段，否则不要放进 SELECT 列表。",
         "如需要 LIMIT，必须同时给出稳定 ORDER BY。",
         "默认添加合理 LIMIT 200，除非用户明确要求更小。",
         f"用户问题：{state.get('user_input') or state.get('question') or ''}",
@@ -463,7 +690,7 @@ def build_fallback_sql(question: str, catalog: SchemaCatalog | None = None, rele
         selected = _fallback_relevant_tables(question, catalog, limit=1)
         selected_name = selected[0] if selected else tables[0].name
     table = table_by_name[selected_name]
-    columns = [column.name for column in table.columns[:5]] or ["*"]
+    columns = _select_display_columns(table, question, limit=5)
     select_expr = ", ".join("*" if column == "*" else _quote_identifier(column) for column in columns)
     order_column = next((column.name for column in table.columns if column.is_primary_key), None) or (table.columns[0].name if table.columns else None)
     sql = f"SELECT {select_expr} FROM {_quote_identifier(table.name)}"

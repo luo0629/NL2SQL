@@ -33,6 +33,30 @@ _DANGEROUS_FRAGMENT_PATTERN = re.compile(
 )
 _ENUM_PAIR_PATTERN = re.compile(r"(?P<value>[-+]?\d+)\s*[:=：]?\s*(?P<label>[一-鿿A-Za-z_][一-鿿A-Za-z0-9_ -]{0,20})")
 _DEFAULT_YAML_SECTIONS = ("aliases", "metrics", "dimensions", "enums", "default_filters")
+_IDENTIFIER_LIKE_COLUMN_PATTERN = re.compile(r"(^id$|_id$|_code$|_no$|^code$)", re.IGNORECASE)
+_INTERNAL_AUDIT_COLUMNS = {
+    "create_user",
+    "update_user",
+    "created_by",
+    "updated_by",
+    "creator_id",
+    "updater_id",
+    "created_user_id",
+    "updated_user_id",
+    "deleted",
+    "is_deleted",
+    "delete_flag",
+}
+_INTERNAL_AUDIT_TIME_COLUMNS = {
+    "create_time",
+    "update_time",
+    "created_at",
+    "updated_at",
+    "create_date",
+    "update_date",
+    "modified_at",
+    "modified_time",
+}
 
 
 def _clean_text(value: object) -> str:
@@ -116,13 +140,25 @@ def _add_term(terms: dict[str, BusinessSemanticTerm], term: str, *, table: str, 
 
 
 def _column_kind(column: SchemaColumn) -> str:
-    if column.semantic_role in {"metric", "dimension", "timestamp", "identifier", "foreign_key"}:
-        return column.semantic_role
+    column_name = column.name.lower()
     data_type = column.data_type.lower()
-    if any(token in data_type for token in ["int", "decimal", "numeric", "float", "double"]):
-        return "metric"
+    if column_name in _INTERNAL_AUDIT_COLUMNS or column_name in _INTERNAL_AUDIT_TIME_COLUMNS:
+        return "internal"
+    if column.semantic_role in {"metric", "dimension", "timestamp", "identifier", "foreign_key", "internal"}:
+        return column.semantic_role
+    if column.is_primary_key or _IDENTIFIER_LIKE_COLUMN_PATTERN.search(column_name):
+        return "identifier"
+    if column_name in {"status", "type", "sort"} or column_name.endswith("_status") or column_name.endswith("_type"):
+        return "dimension"
+    if column_name.endswith("_user"):
+        return "internal"
     if any(token in data_type for token in ["date", "time"]):
         return "timestamp"
+    metric_name_tokens = ("amount", "price", "number", "quantity", "qty", "count", "total", "copies")
+    if any(token in column_name for token in metric_name_tokens):
+        return "metric"
+    if any(token in data_type for token in ["decimal", "numeric", "float", "double"]):
+        return "metric"
     return "dimension"
 
 
@@ -199,7 +235,7 @@ def derive_business_semantics(catalog: SchemaCatalog) -> BusinessSemanticLayer:
                         source="schema",
                     )
                 )
-            elif kind in {"dimension", "timestamp", "identifier"}:
+            elif kind in {"dimension", "timestamp"}:
                 dimensions.append(
                     BusinessDimension(
                         name=column.business_terms[0] if column.business_terms else column.name,

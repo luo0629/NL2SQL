@@ -31,6 +31,9 @@ def _catalog() -> SchemaCatalog:
                         business_terms=["订单状态"],
                         semantic_role="dimension",
                     ),
+                    SchemaColumn(name="user_id", data_type="int", nullable=False, semantic_role="foreign_key"),
+                    SchemaColumn(name="create_user", data_type="varchar", nullable=True, business_terms=["创建人"]),
+                    SchemaColumn(name="update_time", data_type="datetime", nullable=True, business_terms=["更新时间"], semantic_role="timestamp"),
                 ],
             ),
             SchemaTable(
@@ -53,7 +56,12 @@ def test_business_semantics_derives_terms_metrics_dimensions_and_enums() -> None
     assert "销售额" in terms
     assert "订单主表" in terms
     assert any(metric.name == "销售额" and metric.table == "orders" and metric.column == "amount" for metric in semantics.metrics)
+    assert not any(metric.table == "orders" and metric.column == "status" for metric in semantics.metrics)
     assert any(dimension.table == "orders" and dimension.column == "status" for dimension in semantics.dimensions)
+    assert not any(dimension.table == "orders" and dimension.column in {"id", "user_id", "create_user", "update_time"} for dimension in semantics.dimensions)
+    assert any(term.term == "user_id" and term.kind == "foreign_key" for term in semantics.terms)
+    assert any(term.term == "创建人" and term.kind == "internal" for term in semantics.terms)
+    assert any(term.term == "更新时间" and term.kind == "internal" for term in semantics.terms)
     assert any(enum.table == "orders" and enum.column == "status" and enum.values.get("1") == "已支付" for enum in semantics.enums)
 
 

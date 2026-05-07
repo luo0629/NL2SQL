@@ -5,7 +5,7 @@ import pytest
 
 import app.agent.nodes as agent_nodes
 from app.agent.graph import reset_agent_graph, run_agent
-from app.agent.nodes import async_sql_generator, intent_parser, schema_retriever
+from app.agent.nodes import async_sql_generator, build_fallback_sql, intent_parser, schema_retriever
 from app.database.executor import SQLExecutor
 from app.rag.business_semantics import attach_business_semantics
 from app.rag.schema_models import SchemaCatalog, SchemaColumn, SchemaRelation, SchemaTable
@@ -209,12 +209,13 @@ def test_schema_retriever_uses_only_relevant_tables() -> None:
     assert "default=" in state["schema_context"]
 
 
-def test_schema_retriever_includes_business_semantic_context() -> None:
+def test_schema_retriever_includes_business_semantic_context_without_polluting_schema() -> None:
     catalog = _make_dish_catalog()
     state = schema_retriever({"question": "查询销售额最高的商品", "relevant_tables": ["dish"]}, catalog)
 
-    assert "Business semantics:" in state["schema_context"]
+    assert "Business semantics:" not in state["schema_context"]
     assert "销售额" in state["semantic_context"]
+    assert "口味名称" not in state["semantic_context"]
     assert state["debug_trace"]["schema_retriever"]["semantic_context_chars"] > 0
 
 
@@ -223,6 +224,40 @@ def test_intent_parser_uses_semantic_terms_for_fallback_table_selection() -> Non
 
     assert state["relevant_tables"][0] == "dish"
     assert any(signal["term"] == "销售额" for signal in state["semantic_signals"])
+
+
+def test_schema_retriever_keeps_join_relations_in_schema_context() -> None:
+    catalog = _make_dish_catalog()
+    state = schema_retriever({"question": "查询菜品口味", "relevant_tables": ["dish", "flavor"]}, catalog)
+
+    assert "Business semantics:" not in state["schema_context"]
+    assert "Relations:" in state["schema_context"]
+    assert "`flavor`.`dish_id` -> `dish`.`id`" in state["schema_context"]
+
+
+def test_schema_context_marks_ids_as_join_internal_but_keeps_them_visible() -> None:
+    catalog = _make_dish_catalog()
+    state = schema_retriever({"question": "查询菜品口味", "relevant_tables": ["dish", "flavor"]}, catalog)
+
+    assert "Preferred SELECT output columns: `name`, `price`" in state["schema_context"]
+    assert "`id` (INTEGER; NOT NULL; PRIMARY KEY; output=internal identifier; do not select by default)" in state["schema_context"]
+    assert "`dish_id` (INTEGER; NOT NULL; role=foreign_key; output=join/filter/internal; do not select by default)" in state["schema_context"]
+    assert "`flavor`.`dish_id` -> `dish`.`id`" in state["schema_context"]
+
+
+def test_fallback_sql_prefers_display_columns_over_bare_id() -> None:
+    sql = build_fallback_sql("查询菜品", _make_dish_catalog(), ["dish"])
+
+    select_clause = sql.split(" FROM ", 1)[0]
+    assert select_clause == "SELECT `name`, `price`"
+    assert "`id`" not in select_clause
+    assert "ORDER BY `id` DESC" in sql
+
+
+def test_fallback_sql_allows_identifier_when_user_explicitly_asks() -> None:
+    sql = build_fallback_sql("查询菜品ID和名称", _make_dish_catalog(), ["dish"])
+
+    assert sql.startswith("SELECT `id`, `name`, `price`, `created_at` FROM `dish`")
 
 
 @pytest.mark.anyio
