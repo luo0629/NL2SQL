@@ -54,7 +54,8 @@ def test_sql_generator_compiles_join_distinct_plan() -> None:
     assert result.sql == (
         "SELECT DISTINCT dish.name\n"
         "FROM dish\n"
-        "JOIN dish_flavor ON dish.id = dish_flavor.dish_id;"
+        "JOIN dish_flavor ON dish.id = dish_flavor.dish_id\n"
+        "LIMIT 200;"
     )
 
 
@@ -107,4 +108,45 @@ def test_sql_generator_renders_count_star_expression() -> None:
     )
 
     assert result is not None
-    assert result.sql == "SELECT COUNT(*) AS count\nFROM dish;"
+    assert result.sql == "SELECT COUNT(*) AS count\nFROM dish\nLIMIT 200;"
+
+
+def test_sql_generator_uses_like_when_like_intent() -> None:
+    result = SQLGenerator().generate(
+        {
+            "select": [{"table": "dish", "column": "name"}],
+            "from_table": "dish",
+            "where": [
+                {
+                    "table": "dish",
+                    "column": "name",
+                    "operator": "=",
+                    "param_index": 0,
+                    "like_intent": True,
+                }
+            ],
+            "params": ["%辣子鸡%"],
+        }
+    )
+    assert result is not None
+    assert "dish.name LIKE :p0" in result.sql
+
+
+def test_sql_generator_enforces_operator_whitelist() -> None:
+    result = SQLGenerator().generate(
+        {
+            "select": [{"table": "dish", "column": "name"}],
+            "from_table": "dish",
+            "where": [
+                {
+                    "table": "dish",
+                    "column": "name",
+                    "operator": "DROP",
+                    "param_index": 0,
+                }
+            ],
+            "params": ["x"],
+        }
+    )
+    assert result is not None
+    assert "dish.name = :p0" in result.sql

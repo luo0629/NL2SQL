@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+import hashlib
+import json
 
 from sqlalchemy import inspect
 
@@ -82,11 +84,65 @@ def _build_search_terms(
     for column in columns:
         _add_search_variants(terms, column.name)
         _add_search_variants(terms, column.description)
+        for alias in column.aliases:
+            _add_search_variants(terms, alias)
         for business_term in column.business_terms:
             _add_search_variants(terms, business_term)
+        for sample_value in column.sample_values:
+            _add_search_variants(terms, sample_value)
         _add_search_variants(terms, column.semantic_role)
 
     return sorted(terms)
+
+
+def _extract_sample_values(mapping: str | None) -> list[str]:
+    if not mapping:
+        return []
+
+    values: list[str] = []
+    for item in mapping.replace("，", ",").split(","):
+        _, _, value = item.partition("=")
+        candidate = (value or item).strip()
+        if candidate and candidate not in values:
+            values.append(candidate)
+    return values
+
+
+def _build_schema_hash(
+    tables: list[SchemaTable],
+    relations: list[SchemaRelation],
+) -> str:
+    payload = {
+        "tables": [
+            {
+                "name": table.name,
+                "columns": [
+                    {
+                        "name": column.name,
+                        "type": column.data_type,
+                        "nullable": column.nullable,
+                        "primary_key": column.is_primary_key,
+                    }
+                    for column in table.columns
+                ],
+                "primary_keys": table.primary_keys,
+                "indexes": table.indexes,
+            }
+            for table in tables
+        ],
+        "relations": [
+            {
+                "from_table": relation.from_table,
+                "from_column": relation.from_column,
+                "to_table": relation.to_table,
+                "to_column": relation.to_column,
+                "relation_type": relation.relation_type,
+            }
+            for relation in relations
+        ],
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 async def sync_schema_metadata() -> SchemaCatalog:
@@ -95,6 +151,7 @@ async def sync_schema_metadata() -> SchemaCatalog:
 
     async with engine.connect() as connection:
         database_name = connection.engine.url.database or "unknown"
+        database_key = f"{connection.engine.url.drivername}:{database_name}"
 
         def inspect_schema(sync_connection):
             inspector = inspect(sync_connection)
@@ -163,6 +220,14 @@ async def sync_schema_metadata() -> SchemaCatalog:
                 table_name=table_name,
                 column_name=column_name,
             )
+            metadata_sources = ["introspection"]
+            if comment_value:
+                metadata_sources.append("db_comment")
+            if fallback_mapping:
+                metadata_sources.append("value_mapping")
+            if column_enrichment.business_terms or column_enrichment.semantic_role:
+                metadata_sources.append("enrichment")
+
             columns.append(
                 SchemaColumn(
                     name=column_name,
@@ -175,11 +240,24 @@ async def sync_schema_metadata() -> SchemaCatalog:
                     ),
                     business_terms=column_enrichment.business_terms,
                     semantic_role=column_enrichment.semantic_role,
+                    sample_values=_extract_sample_values(fallback_mapping),
+                    metadata_sources=metadata_sources,
                 )
             )
 
         table_enrichment = get_table_enrichment(enrichment, table_name)
         table_description = TABLE_DESCRIPTIONS.get(table_name)
+        table_metadata_sources = ["introspection"]
+        table_missing_metadata: list[str] = []
+        if table_description or table_enrichment.aliases or table_enrichment.business_terms:
+            table_metadata_sources.append("enrichment")
+        else:
+            table_missing_metadata.append("description")
+        if not primary_keys:
+            table_missing_metadata.append("primary_key")
+        if not indexes_by_table.get(table_name):
+            table_missing_metadata.append("indexes")
+
         tables.append(
             SchemaTable(
                 name=table_name,
@@ -196,6 +274,8 @@ async def sync_schema_metadata() -> SchemaCatalog:
                     table_enrichment.business_terms,
                     columns,
                 ),
+                metadata_sources=table_metadata_sources,
+                missing_metadata=table_missing_metadata,
             )
         )
 
@@ -255,9 +335,25 @@ async def sync_schema_metadata() -> SchemaCatalog:
             )
         )
 
+    schema_hash = _build_schema_hash(tables, relations)
+    catalog_missing_metadata = sorted(
+        {
+            missing
+            for table in tables
+            for missing in table.missing_metadata
+        }
+    )
+    if not relations and len(tables) > 1:
+        catalog_missing_metadata.append("relations")
+
     return SchemaCatalog(
         database=database_name,
         tables=tables,
         relations=relations,
         synced_at=datetime.now(timezone.utc).isoformat(),
+        database_key=database_key,
+        schema_hash=schema_hash,
+        version=schema_hash[:12],
+        metadata_sources=["introspection", "enrichment", "value_mapping"],
+        missing_metadata=catalog_missing_metadata,
     )

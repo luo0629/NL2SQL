@@ -42,6 +42,9 @@ class SQLRepairer:
             elif code == "PARAMETER_INDEX_INVALID":
                 repaired = self._repair_invalid_parameter_indexes(repaired_plan) or repaired
                 repaired_codes.append(str(code))
+            elif code == "WHERE_OPERATOR_NOT_ALLOWED":
+                repaired = self._repair_where_operator(repaired_plan) or repaired
+                repaired_codes.append(str(code))
 
         if not repaired:
             return SQLRepairResult(
@@ -85,4 +88,16 @@ class SQLRepairer:
 
         if repaired:
             sql_plan["where"] = valid_where
+        return repaired
+
+    def _repair_where_operator(self, sql_plan: dict[str, Any]) -> bool:
+        repaired = False
+        allowed_operators = {"=", "!=", ">", ">=", "<", "<=", "LIKE", "IN"}
+        for clause in sql_plan.get("where", []):
+            if not isinstance(clause, dict):
+                continue
+            operator = str(clause.get("operator") or "=").upper()
+            if operator not in allowed_operators:
+                clause["operator"] = "="
+                repaired = True
         return repaired

@@ -40,6 +40,7 @@ def test_sql_planner_builds_single_table_plan_with_value_provenance() -> None:
             "param_index": 0,
             "source": "value_linking",
             "value_mention": "起售",
+            "like_intent": False,
         }
     ]
     assert plan.params == ["1"]
@@ -81,6 +82,33 @@ def test_sql_planner_builds_join_plan_with_distinct_signal() -> None:
     assert plan.provenance["distinct"] == "join_path_planning"
 
 
+def test_sql_planner_downgrades_low_confidence_join_when_single_table_is_enough() -> None:
+    join_edge = {
+        "left_table": "dish",
+        "left_column": "id",
+        "right_table": "dish_flavor",
+        "right_column": "dish_id",
+        "relation_type": "one-to-many",
+        "source": "schema_relation",
+    }
+    plan = SQLPlanner().build(
+        query_understanding={},
+        schema_linking={
+            "matched_tables": [{"table_name": "dish", "matched_columns": [{"column_name": "name"}]}]
+        },
+        value_links=[],
+        join_path_plan={
+            "primary_table": "dish",
+            "edges": [join_edge],
+            "plan_confidence": "low",
+            "requires_distinct": True,
+        },
+    )
+    assert plan.from_table == "dish"
+    assert plan.joins == []
+    assert "join_downgraded_to_single_table_due_to_low_confidence" in plan.uncertainties
+
+
 def test_sql_planner_preserves_unresolved_value_links_for_validation() -> None:
     plan = SQLPlanner().build(
         query_understanding={},
@@ -108,6 +136,26 @@ def test_sql_planner_preserves_unresolved_value_links_for_validation() -> None:
     ]
     assert plan.params == []
     assert plan.select == [{"table": "dish", "column": "id", "source": "schema_linking_default"}]
+
+
+def test_sql_planner_builds_like_clause_from_like_intent() -> None:
+    plan = SQLPlanner().build(
+        query_understanding={},
+        schema_linking={"matched_tables": [{"table_name": "dish", "matched_columns": [{"column_name": "name"}]}]},
+        value_links=[
+            {
+                "mention": "辣子鸡",
+                "table": "dish",
+                "column": "name",
+                "db_value": "辣子鸡",
+                "match_type": "semantic",
+                "like_intent": True,
+            }
+        ],
+        join_path_plan={"primary_table": "dish", "edges": []},
+    )
+    assert plan.where[0]["operator"] == "LIKE"
+    assert plan.params == ["%辣子鸡%"]
 
 
 def test_sql_planner_builds_grouped_sum_ranking_plan() -> None:

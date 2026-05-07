@@ -53,6 +53,10 @@ def test_query_endpoint_includes_debug_trace_contract(client: TestClient) -> Non
     assert "value_links" in debug
     assert "join_path_plan" in debug
     assert "join_paths" in debug
+    assert "candidate_plans" in debug
+    assert "confidence_judge" in debug
+    assert "rerank" in debug
+    assert "final_sql_plan" in debug
     assert "semantic_brief" in debug
     assert "sql_plan" in debug
     assert "validation" in debug
@@ -64,3 +68,11 @@ def test_query_endpoint_rejects_empty_question(client: TestClient) -> None:
     response = client.post("/api/query", json={"question": ""})
 
     assert response.status_code == 422
+
+
+def test_query_endpoint_single_table_question_should_avoid_join(client: TestClient) -> None:
+    response = client.post("/api/query", json={"question": "查询菜品价格和状态"})
+    assert response.status_code == 200
+    payload = cast(dict[str, object], response.json())
+    sql = cast(str, payload["sql"]).upper()
+    assert "JOIN" not in sql

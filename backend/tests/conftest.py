@@ -37,6 +37,11 @@ class StubSQLExecutor(SQLExecutor):
 
 
 @pytest.fixture
+def schema_domains() -> list[str]:
+    return ["restaurant", "crm"]
+
+
+@pytest.fixture
 def client() -> Generator[TestClient, None, None]:
     app.dependency_overrides[get_agent_service] = lambda: AgentService(
         llm_service=StubLLMService(),

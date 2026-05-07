@@ -21,6 +21,23 @@ class SQLPlan(BaseModel):
 
 
 class SQLPlanner:
+    def select_from_candidates(
+        self,
+        candidate_plans: list[dict[str, Any]],
+    ) -> SQLPlan | None:
+        if not candidate_plans:
+            return None
+        ranked = sorted(
+            (item for item in candidate_plans if isinstance(item, dict)),
+            key=lambda item: float(item.get("score", 0.0)),
+            reverse=True,
+        )
+        for candidate in ranked:
+            sql_plan = candidate.get("sql_plan")
+            if isinstance(sql_plan, dict) and sql_plan.get("from_table"):
+                return SQLPlan(**sql_plan)
+        return None
+
     def build(
         self,
         query_understanding: dict[str, Any],
@@ -35,17 +52,23 @@ class SQLPlanner:
         having, params = self._build_having(query_understanding, select_fields, params)
         order_by = self._build_order_by(query_understanding, schema_linking, from_table, select_fields)
         uncertainties = list(join_path_plan.get("unresolved_tables", [])) + list(join_path_plan.get("ambiguous_paths", []))
+        join_edges = list(join_path_plan.get("edges", []))
+        join_confidence_raw = join_path_plan.get("plan_confidence")
+        join_confidence = str(join_confidence_raw).lower() if join_confidence_raw is not None else ""
+        if join_edges and join_confidence in {"none", "low"} and from_table and self._single_table_capable(select_fields, where_clauses, from_table):
+            uncertainties.append("join_downgraded_to_single_table_due_to_low_confidence")
+            join_edges = []
 
         return SQLPlan(
             select=select_fields,
             from_table=from_table,
-            joins=list(join_path_plan.get("edges", [])),
+            joins=join_edges,
             where=where_clauses,
             group_by=group_by,
             having=having,
             order_by=order_by,
             limit=query_understanding.get("limit"),
-            distinct=bool(join_path_plan.get("requires_distinct", False)),
+            distinct=bool(join_edges and join_path_plan.get("requires_distinct", False)),
             params=params,
             provenance={
                 "select": "query_understanding" if self._has_aggregation(query_understanding) else "schema_linking",
@@ -195,15 +218,21 @@ class SQLPlanner:
                     }
                 )
                 continue
-            params.append(value_link.get("db_value"))
+            db_value = value_link.get("db_value")
+            like_intent = bool(value_link.get("like_intent"))
+            operator = "LIKE" if like_intent else "="
+            if like_intent and isinstance(db_value, str):
+                db_value = f"%{db_value}%"
+            params.append(db_value)
             where_clauses.append(
                 {
                     "table": table,
                     "column": column,
-                    "operator": "=",
+                    "operator": operator,
                     "param_index": len(params) - 1,
                     "source": "value_linking",
                     "value_mention": value_link.get("mention"),
+                    "like_intent": like_intent,
                 }
             )
         return where_clauses, params
@@ -329,3 +358,19 @@ class SQLPlanner:
     def _metric_alias(self, aggregation: str) -> str:
         aliases = {"COUNT": "count", "SUM": "total", "AVG": "average", "MIN": "minimum", "MAX": "maximum"}
         return aliases.get(aggregation.upper(), aggregation.lower())
+
+    def _single_table_capable(
+        self,
+        select_fields: list[dict[str, object]],
+        where_clauses: list[dict[str, object]],
+        from_table: str,
+    ) -> bool:
+        for item in select_fields:
+            table = item.get("table")
+            if isinstance(table, str) and table and table != from_table:
+                return False
+        for clause in where_clauses:
+            table = clause.get("table")
+            if isinstance(table, str) and table and table != from_table:
+                return False
+        return True

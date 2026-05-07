@@ -12,6 +12,7 @@ class LinkedColumn(BaseModel):
     score: int
     matched_terms: list[str] = Field(default_factory=list)
     semantic_role: str | None = None
+    evidence: list[dict[str, object]] = Field(default_factory=list)
 
 
 class LinkedTable(BaseModel):
@@ -189,7 +190,16 @@ class SchemaLinker:
                 score += 2
 
         for column in table.columns:
-            score += self._score_column(column.name, column.description, column.business_terms, normalized_question, tokens)
+            score += self._score_column(
+                column.name,
+                column.description,
+                column.business_terms,
+                normalized_question,
+                tokens,
+                aliases=column.aliases,
+                sample_values=column.sample_values,
+                semantic_role=column.semantic_role,
+            )
 
         return score
 
@@ -200,32 +210,98 @@ class SchemaLinker:
         business_terms: list[str],
         normalized_question: str,
         tokens: set[str],
+        aliases: list[str] | None = None,
+        sample_values: list[str] | None = None,
+        semantic_role: str | None = None,
     ) -> int:
-        score = 0
+        score, _ = self._score_column_with_evidence(
+            column_name,
+            column_description,
+            business_terms,
+            normalized_question,
+            tokens,
+            aliases=aliases or [],
+            sample_values=sample_values or [],
+            semantic_role=semantic_role,
+        )
+        return score
+
+
+    def _score_column_with_evidence(
+        self,
+        column_name: str,
+        column_description: str | None,
+        business_terms: list[str],
+        normalized_question: str,
+        tokens: set[str],
+        aliases: list[str] | None = None,
+        sample_values: list[str] | None = None,
+        semantic_role: str | None = None,
+    ) -> tuple[int, list[dict[str, object]]]:
+        aliases = aliases or []
+        sample_values = sample_values or []
+        evidence: list[dict[str, object]] = []
+
+        def add_evidence(source: str, term: str, score: int) -> None:
+            clean_term = term.strip()
+            if not clean_term:
+                return
+            evidence.append({"source": source, "term": clean_term, "score": score})
+
         lowered_column_name = column_name.lower()
         lowered_column_description = (column_description or "").lower()
         business_term_set = {term.lower().strip() for term in business_terms if term.strip()}
+        alias_set = {alias.lower().strip() for alias in aliases if alias.strip()}
+        sample_value_set = {value.lower().strip() for value in sample_values if value.strip()}
 
         if lowered_column_name in normalized_question:
-            score += 4
+            add_evidence("name", column_name, 4)
         if lowered_column_description and lowered_column_description in normalized_question:
-            score += 3
-
+            add_evidence("comment", column_description or "", 3)
+        for alias in alias_set:
+            if alias and alias in normalized_question:
+                add_evidence("alias", alias, 4)
         for business_term in business_term_set:
             if business_term and business_term in normalized_question:
-                score += 4
+                add_evidence("business_term", business_term, 4)
+        for sample_value in sample_value_set:
+            if sample_value and sample_value in normalized_question:
+                add_evidence("sample_value", sample_value, 5)
 
         for token in tokens:
             if len(token) < 2:
                 continue
             if token == lowered_column_name:
-                score += 3
+                add_evidence("name", column_name, 3)
             if lowered_column_description and token == lowered_column_description:
-                score += 2
+                add_evidence("comment", column_description or "", 2)
+            elif lowered_column_description and token in lowered_column_description:
+                add_evidence("comment", token, 1)
+            if token in alias_set:
+                add_evidence("alias", token, 3)
             if token in business_term_set:
-                score += 3
+                add_evidence("business_term", token, 3)
+            if token in sample_value_set:
+                add_evidence("sample_value", token, 4)
 
-        return score
+        score = sum(int(item["score"]) for item in evidence)
+        weak_text_names = {"description", "desc", "remark", "remarks", "note", "notes", "memo", "comment", "comments"}
+        weak_text_roles = {"description", "remark", "note", "memo"}
+        asks_for_weak_text = any(term in normalized_question for term in ["描述", "备注", "说明", "简介", "description", "remark", "note", "memo"])
+        if (lowered_column_name in weak_text_names or (semantic_role or "").lower() in weak_text_roles) and not asks_for_weak_text:
+            penalty = min(max(score - 1, 0), 4)
+            if penalty:
+                evidence.append({"source": "weak_text_downrank", "term": column_name, "score": -penalty})
+                score -= penalty
+
+        merged: dict[tuple[str, str], dict[str, object]] = {}
+        for item in evidence:
+            key = (str(item["source"]), str(item["term"]),)
+            if key not in merged:
+                merged[key] = dict(item)
+            else:
+                merged[key]["score"] = int(merged[key]["score"]) + int(item["score"])
+        return score, sorted(merged.values(), key=lambda item: (-int(item["score"]), str(item["source"]), str(item["term"])))
 
     def _match_table_terms(
         self,
@@ -256,18 +332,27 @@ class SchemaLinker:
     ) -> list[LinkedColumn]:
         linked_columns: list[LinkedColumn] = []
         for column in table.columns:
-            score = self._score_column(
+            score, evidence = self._score_column_with_evidence(
                 column.name,
                 column.description,
                 column.business_terms,
                 normalized_question,
                 tokens,
+                aliases=column.aliases,
+                sample_values=column.sample_values,
+                semantic_role=column.semantic_role,
             )
             if score <= 0:
                 continue
 
             matched_terms: set[str] = set()
-            candidates = [column.name, column.description or "", *column.business_terms]
+            candidates = [
+                column.name,
+                column.description or "",
+                *column.aliases,
+                *column.business_terms,
+                *column.sample_values,
+            ]
             for candidate in candidates:
                 lowered_candidate = candidate.lower().strip()
                 if not lowered_candidate:
@@ -286,6 +371,7 @@ class SchemaLinker:
                     score=score,
                     matched_terms=sorted(matched_terms),
                     semantic_role=column.semantic_role,
+                    evidence=evidence,
                 )
             )
 

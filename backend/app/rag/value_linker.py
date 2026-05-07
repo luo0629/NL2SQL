@@ -15,8 +15,10 @@ class ValueLink(BaseModel):
     column: str | None = None
     db_value: object | None = None
     confidence: float
-    match_type: Literal["exact", "normalized", "fuzzy", "semantic", "typed_literal", "unresolved"]
+    match_type: Literal["exact", "normalized", "fuzzy", "semantic", "sample_value", "typed_literal", "unresolved"]
     source: Literal["database", "sample", "mapping", "literal", "fallback"]
+    operator: Literal["=", "LIKE"] = "="
+    evidence: list[dict[str, object]] = Field(default_factory=list)
 
 
 class ValueLinkingResult(BaseModel):
@@ -49,6 +51,15 @@ class ValueLinker:
                 value_links.append(mapped_link)
                 continue
 
+            sample_link = self._link_from_sample_values(
+                mention,
+                condition_mentions,
+                candidate_columns,
+            )
+            if sample_link is not None:
+                value_links.append(sample_link)
+                continue
+
             if self._is_typed_literal(mention):
                 table, column = self._first_candidate(candidate_columns)
                 value_links.append(
@@ -61,6 +72,8 @@ class ValueLinker:
                         confidence=0.8,
                         match_type="typed_literal",
                         source="literal",
+                        operator="=",
+                        evidence=[{"source": "typed_literal", "score": 0.8}],
                     )
                 )
                 continue
@@ -76,6 +89,8 @@ class ValueLinker:
                     confidence=0.0,
                     match_type="unresolved",
                     source="fallback",
+                    operator="=",
+                    evidence=[{"source": "unresolved", "score": 0.0}],
                 )
             )
 
@@ -139,6 +154,8 @@ class ValueLinker:
                         confidence=0.95,
                         match_type="exact",
                         source="mapping",
+                        operator="LIKE" if self._is_text_column(column) else "=",
+                        evidence=[{"source": "mapping", "label": label, "raw_value": raw_value, "score": 0.95}],
                     )
                 if normalized_mention in normalized_label or normalized_label in normalized_mention:
                     return ValueLink(
@@ -150,8 +167,64 @@ class ValueLinker:
                         confidence=0.85,
                         match_type="normalized",
                         source="mapping",
+                        operator="LIKE" if self._is_text_column(column) else "=",
+                        evidence=[{"source": "mapping", "label": label, "raw_value": raw_value, "score": 0.85}],
                     )
         return None
+
+
+    def _link_from_sample_values(
+        self,
+        mention: str,
+        condition_mentions: list[str],
+        candidate_columns: list[tuple[str, str, SchemaColumn | None]],
+    ) -> ValueLink | None:
+        normalized_mention = self._normalize_for_semantic_match(mention)
+        if not normalized_mention:
+            return None
+
+        best_link: ValueLink | None = None
+        for table_name, column_name, column in candidate_columns:
+            if column is None or not column.sample_values:
+                continue
+            for sample_value in column.sample_values:
+                normalized_sample = self._normalize_for_semantic_match(str(sample_value))
+                if not normalized_sample:
+                    continue
+                if normalized_mention == normalized_sample:
+                    confidence = 0.93
+                    match_type: Literal["exact", "normalized", "fuzzy", "semantic", "sample_value", "typed_literal", "unresolved"] = "sample_value"
+                elif normalized_mention in normalized_sample or normalized_sample in normalized_mention:
+                    confidence = 0.86
+                    match_type = "normalized"
+                elif self._has_semantic_overlap(normalized_mention, normalized_sample):
+                    confidence = 0.78
+                    match_type = "semantic"
+                else:
+                    continue
+
+                operator = "LIKE" if self._is_text_column(column) else "="
+                candidate = ValueLink(
+                    mention=mention,
+                    field_mention=condition_mentions[0] if condition_mentions else None,
+                    table=table_name,
+                    column=column_name,
+                    db_value=sample_value,
+                    confidence=confidence,
+                    match_type=match_type,
+                    source="sample",
+                    operator=operator,
+                    evidence=[
+                        {
+                            "source": "sample_value",
+                            "sample_value": sample_value,
+                            "score": confidence,
+                        }
+                    ],
+                )
+                if best_link is None or candidate.confidence > best_link.confidence:
+                    best_link = candidate
+        return best_link
 
     def _parse_mapping_description(self, description: str) -> dict[str, str]:
         mappings: dict[str, str] = {}
@@ -170,6 +243,27 @@ class ValueLinker:
 
     def _normalize(self, value: str) -> str:
         return re.sub(r"\s+", "", value.strip().lower())
+
+
+    def _normalize_for_semantic_match(self, value: str) -> str:
+        normalized = self._normalize(value)
+        for suffix in ["的", "类", "型", "值"]:
+            if normalized.endswith(suffix) and len(normalized) > len(suffix):
+                normalized = normalized[: -len(suffix)]
+        return normalized
+
+    def _has_semantic_overlap(self, left: str, right: str) -> bool:
+        if len(left) < 1 or len(right) < 1:
+            return False
+        if len(left) == 1 or len(right) == 1:
+            return left[0] == right[0]
+        return bool(set(left) & set(right)) and (left[0] == right[0] or left[-1] == right[-1])
+
+    def _is_text_column(self, column: SchemaColumn | None) -> bool:
+        if column is None:
+            return False
+        data_type = column.data_type.lower()
+        return any(token in data_type for token in ["char", "text", "string", "varchar"])
 
     def _first_candidate(self, candidate_columns: list[tuple[str, str, SchemaColumn | None]]) -> tuple[str | None, str | None]:
         if not candidate_columns:

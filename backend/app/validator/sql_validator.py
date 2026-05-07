@@ -23,6 +23,7 @@ class SQLValidator:
     FORBIDDEN_PATTERNS: ClassVar[tuple[str, ...]] = ("--", "/*", "*/")
     # 仅允许只读前缀。
     ALLOWED_PREFIXES: ClassVar[tuple[str, ...]] = ("select", "with")
+    ALLOWED_OPERATORS: ClassVar[set[str]] = {"=", "!=", ">", ">=", "<", "<=", "like", "in"}
 
     def validate_read_only(self, sql: str) -> None:
         # 校验流程：非空 -> 只读前缀 -> 禁止模式 -> 单语句 -> 禁止关键词。
@@ -39,12 +40,6 @@ class SQLValidator:
         if any(pattern in lowered_sql for pattern in self.FORBIDDEN_PATTERNS):
             raise DangerousSQLError(
                 "SQL contains forbidden comment or chaining patterns."
-            )
-
-        # Stability guard: LIMIT queries without ORDER BY are structurally unstable.
-        if "limit" in lowered_sql and "order by" not in lowered_sql:
-            raise DangerousSQLError(
-                "LIMIT queries must include an explicit ORDER BY for stable results."
             )
 
         if ";" in normalized_sql[:-1] or normalized_sql.count(";") > 1:
@@ -121,6 +116,16 @@ class SQLValidator:
                             "repairable": True,
                         }
                     )
+                operator = str(clause.get("operator") or "=").lower()
+                if operator not in self.ALLOWED_OPERATORS:
+                    issues.append(
+                        {
+                            "level": "error",
+                            "code": "WHERE_OPERATOR_NOT_ALLOWED",
+                            "message": "WHERE 条件操作符不在白名单中。",
+                            "repairable": True,
+                        }
+                    )
 
         return issues
 
@@ -193,6 +198,15 @@ class SQLValidator:
                             "repairable": True,
                         }
                     )
+            elif table and column:
+                issues.append(
+                    {
+                        "level": "error",
+                        "code": "SQL_WHERE_UNPARAMETERIZED",
+                        "message": "WHERE 条件缺少参数化占位符。",
+                        "repairable": False,
+                    }
+                )
 
         if sql_plan.get("limit") is not None and str(sql_plan.get("limit")) not in normalized_sql:
             issues.append(

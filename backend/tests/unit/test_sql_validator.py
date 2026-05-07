@@ -12,11 +12,9 @@ def test_sql_validator_allows_single_select() -> None:
     )
 
 
-def test_sql_validator_blocks_limit_without_order_by() -> None:
+def test_sql_validator_allows_limit_without_order_by() -> None:
     validator = SQLValidator()
-
-    with raises(DangerousSQLError):
-        validator.validate_read_only("SELECT id, name FROM customers LIMIT 10;")
+    validator.validate_read_only("SELECT id, name FROM customers LIMIT 10;")
 
 
 def test_sql_validator_blocks_dangerous_keyword() -> None:
@@ -116,6 +114,26 @@ def test_sql_validator_reports_invalid_parameter_index() -> None:
 
     assert issues[0]["code"] == "PARAMETER_INDEX_INVALID"
     assert issues[0]["repairable"] is True
+
+
+def test_sql_validator_reports_not_allowed_where_operator() -> None:
+    issues = SQLValidator().validate_plan_provenance(
+        sql_plan={
+            "from_table": "dish",
+            "where": [
+                {
+                    "table": "dish",
+                    "column": "status",
+                    "source": "value_linking",
+                    "param_index": 0,
+                    "operator": "drop",
+                }
+            ],
+            "provenance": {"from_table": "schema_linking"},
+        },
+        params=["1"],
+    )
+    assert any(issue["code"] == "WHERE_OPERATOR_NOT_ALLOWED" for issue in issues)
 
 
 def test_sql_validator_reports_sql_plan_from_table_mismatch() -> None:

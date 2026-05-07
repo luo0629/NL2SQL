@@ -56,5 +56,8 @@ async def test_agent_service_returns_mock_response() -> None:
     assert "query_understanding" in response.debug
     assert "schema_links" in response.debug
     assert "join_paths" in response.debug
+    assert "candidate_plans" in response.debug
+    assert "confidence_judge" in response.debug
+    assert "rerank" in response.debug
     assert "sql_plan" in response.debug
     assert response.debug["fallback"] == {"used": False}

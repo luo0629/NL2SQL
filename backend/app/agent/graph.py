@@ -5,6 +5,7 @@ from typing import cast
 from langgraph.graph import END, START, StateGraph
 
 from app.agent.nodes import (
+    build_candidate_tables,
     build_semantic_brief,
     execute_sql,
     finalize_response,
@@ -72,8 +73,11 @@ def build_agent_graph(
     def value_linking_node(state: object) -> AgentState:
         return value_linking(cast(AgentState, state), catalog)
 
+    def build_candidate_tables_node(state: object) -> AgentState:
+        return build_candidate_tables(cast(AgentState, state))
+
     def join_path_planning_node(state: object) -> AgentState:
-        return join_path_planning(cast(AgentState, state))
+        return join_path_planning(cast(AgentState, state), catalog)
 
     def build_semantic_brief_node(state: object) -> AgentState:
         return build_semantic_brief(cast(AgentState, state))
@@ -100,6 +104,7 @@ def build_agent_graph(
     _ = graph_builder.add_node("retrieve_schema", retrieve_schema_node)
     _ = graph_builder.add_node("schema_linking", schema_linking_node)
     _ = graph_builder.add_node("value_linking", value_linking_node)
+    _ = graph_builder.add_node("build_candidate_tables", build_candidate_tables_node)
     _ = graph_builder.add_node("join_path_planning", join_path_planning_node)
     _ = graph_builder.add_node("build_semantic_brief", build_semantic_brief_node)
     _ = graph_builder.add_node("sql_planning", sql_planning_node)
@@ -113,7 +118,8 @@ def build_agent_graph(
     _ = graph_builder.add_edge("query_understanding", "retrieve_schema")
     _ = graph_builder.add_edge("retrieve_schema", "schema_linking")
     _ = graph_builder.add_edge("schema_linking", "value_linking")
-    _ = graph_builder.add_edge("value_linking", "join_path_planning")
+    _ = graph_builder.add_edge("value_linking", "build_candidate_tables")
+    _ = graph_builder.add_edge("build_candidate_tables", "join_path_planning")
     _ = graph_builder.add_edge("join_path_planning", "build_semantic_brief")
     _ = graph_builder.add_edge("build_semantic_brief", "sql_planning")
     _ = graph_builder.add_edge("sql_planning", "generate_sql")

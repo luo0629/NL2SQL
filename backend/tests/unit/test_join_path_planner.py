@@ -224,3 +224,62 @@ def test_join_path_planner_reports_unresolved_tables_when_no_path_exists() -> No
     assert plan.unresolved_tables == ["category"]
     assert plan.plan_confidence == "none"
     assert "未解决表: category" in plan.planning_summary
+
+
+def test_join_path_planner_uses_candidate_required_tables() -> None:
+    catalog = build_catalog()
+    candidate_tables = {
+        "target_table": "dish",
+        "required_tables": ["dish", "category"],
+    }
+
+    plan = JoinPathPlanner().plan_from_candidate_tables(candidate_tables, catalog)
+
+    assert plan.primary_table == "dish"
+    assert plan.tables_in_plan == ["dish", "category"]
+    assert len(plan.join_paths) == 1
+    assert plan.join_paths[0].tables == ["dish", "category"]
+    assert plan.join_paths[0].joins[0].left_table == "dish"
+    assert plan.join_paths[0].joins[0].right_table == "category"
+    assert plan.join_paths[0].score == 1.0
+
+
+def test_join_path_planner_candidate_tables_reports_missing_path() -> None:
+    catalog = build_catalog()
+    candidate_tables = {
+        "target_table": "user",
+        "required_tables": ["user", "coupon"],
+    }
+
+    plan = JoinPathPlanner().plan_from_candidate_tables(candidate_tables, catalog)
+
+    assert plan.primary_table == "user"
+    assert plan.unresolved_tables == ["coupon"]
+    assert plan.join_paths == []
+    assert plan.plan_confidence == "none"
+
+
+def test_join_path_planner_skips_when_single_required_table() -> None:
+    catalog = build_catalog()
+    candidate_tables = {
+        "target_table": "orders",
+        "required_tables": ["orders"],
+        "confidence": 0.9,
+    }
+    plan = JoinPathPlanner().plan_from_candidate_tables(candidate_tables, catalog)
+    assert plan.edges == []
+    assert plan.join_paths == []
+    assert "跳过连表" in plan.planning_summary
+
+
+def test_join_path_planner_candidate_tables_marks_distinct() -> None:
+    catalog = build_catalog()
+    candidate_tables = {
+        "target_table": "orders",
+        "required_tables": ["orders", "dish"],
+    }
+
+    plan = JoinPathPlanner().plan_from_candidate_tables(candidate_tables, catalog)
+
+    assert plan.requires_distinct is True
+    assert plan.join_paths[0].requires_distinct is True

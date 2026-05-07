@@ -10,6 +10,9 @@ class SQLGenerationResult:
 
 
 class SQLGenerator:
+    ALLOWED_OPERATORS = {"=", "!=", ">", ">=", "<", "<=", "LIKE", "IN"}
+    DEFAULT_LIMIT = 200
+
     def generate(self, sql_plan: dict[str, Any]) -> SQLGenerationResult | None:
         from_table = sql_plan.get("from_table")
         if not from_table:
@@ -71,7 +74,11 @@ class SQLGenerator:
         for clause in where_clauses:
             table = clause.get("table")
             column = clause.get("column")
-            operator = clause.get("operator", "=")
+            operator = str(clause.get("operator", "=")).upper()
+            if operator not in self.ALLOWED_OPERATORS:
+                operator = "="
+            if clause.get("like_intent") and operator == "=":
+                operator = "LIKE"
             if not table or not column:
                 continue
             predicates.append(f"{table}.{column} {operator} :p{clause.get('param_index', len(predicates))}")
@@ -97,7 +104,9 @@ class SQLGenerator:
         predicates: list[str] = []
         for clause in having:
             expression = clause.get("expression")
-            operator = clause.get("operator", "=")
+            operator = str(clause.get("operator", "=")).upper()
+            if operator not in self.ALLOWED_OPERATORS:
+                operator = "="
             if not expression:
                 continue
             predicates.append(f"{expression} {operator} :p{clause.get('param_index', len(predicates))}")
@@ -124,5 +133,5 @@ class SQLGenerator:
 
     def _render_limit(self, limit: object) -> str:
         if not isinstance(limit, int) or limit <= 0:
-            return ""
+            limit = self.DEFAULT_LIMIT
         return f"LIMIT {limit}"

@@ -12,6 +12,12 @@ from app.agent.state import AgentState
 from app.config import get_settings
 from app.database.executor import SQLExecutor
 from app.services.llm_service import LLMService
+from app.rag.candidate_sql_plan_builder import CandidateSQLPlanBuilder
+from app.rag.candidate_table_builder import CandidateTableBuilder
+from app.rag.confidence_judge import ConfidenceJudge
+from app.rag.join_path_planner import JoinPathPlanner
+from app.rag.llm_plan_reranker import LLMPlanReranker
+from app.rag.query_normalizer import QueryNormalizer
 from app.rag.schema_models import SchemaCatalog
 from app.rag.sql_generator import SQLGenerator
 from app.rag.sql_planner import SQLPlanner
@@ -212,7 +218,6 @@ def _invoke_model_json(model: Any, prompt: str) -> dict[str, Any] | None:
         return None
     return _extract_json_object(content)
 
-
 def _extract_catalog_business_terms(catalog: SchemaCatalog | None) -> tuple[list[str], list[str]]:
     """从 schema catalog 动态提取业务术语和条件标记。"""
     if not catalog or not catalog.tables:
@@ -221,32 +226,42 @@ def _extract_catalog_business_terms(catalog: SchemaCatalog | None) -> tuple[list
     business_terms: list[str] = []
     condition_markers: list[str] = []
 
+    def add_term(target: list[str], value: object) -> None:
+        text = str(value or "").strip()
+        if text:
+            target.append(text)
+
     for table in catalog.tables:
-        if table.description:
-            business_terms.append(table.description)
+        add_term(business_terms, table.name)
+        add_term(business_terms, table.description)
         for alias in table.aliases:
-            if alias.strip():
-                business_terms.append(alias.strip())
+            add_term(business_terms, alias)
         for term in table.business_terms:
-            if term.strip():
-                business_terms.append(term.strip())
+            add_term(business_terms, term)
 
         for column in table.columns:
-            if column.description:
-                business_terms.append(column.description)
+            add_term(business_terms, column.name)
+            add_term(business_terms, column.description)
+            for alias in column.aliases:
+                add_term(business_terms, alias)
             for term in column.business_terms:
-                if term.strip():
-                    business_terms.append(term.strip())
-            if column.semantic_role in ("dimension", "foreign_key", "timestamp"):
-                if column.description:
-                    condition_markers.append(column.description)
-                for term in column.business_terms:
-                    if term.strip():
-                        condition_markers.append(term.strip())
+                add_term(business_terms, term)
+            for sample_value in column.sample_values:
+                add_term(business_terms, sample_value)
 
-    business_terms = list(dict.fromkeys(business_terms))
-    condition_markers = list(dict.fromkeys(condition_markers))
-    return business_terms, condition_markers
+            is_condition_like = column.semantic_role in {"dimension", "foreign_key", "timestamp"}
+            is_filterable_type = any(token in column.data_type.lower() for token in ["char", "text", "int", "decimal", "date", "time", "bool"])
+            if is_condition_like or is_filterable_type:
+                add_term(condition_markers, column.name)
+                add_term(condition_markers, column.description)
+                for alias in column.aliases:
+                    add_term(condition_markers, alias)
+                for term in column.business_terms:
+                    add_term(condition_markers, term)
+
+    business_terms = sorted(dict.fromkeys(business_terms), key=len, reverse=True)
+    condition_markers = sorted(dict.fromkeys(condition_markers), key=len, reverse=True)
+    return business_terms[:80], condition_markers[:80]
 
 
 def _fallback_query_understanding(question: str, catalog: SchemaCatalog | None = None) -> dict[str, Any]:
@@ -338,6 +353,32 @@ def _fallback_query_understanding(question: str, catalog: SchemaCatalog | None =
     elif "time-range" in tags:
         time_range = {"type": "relative"}
 
+    strong_relation_phrases = [
+        "关联",
+        "join",
+        "属于",
+        "对应的是",
+        "连到",
+        "映射到",
+        "及其",
+    ]
+    has_strong_relation_phrase = any(phrase in normalized_question for phrase in strong_relation_phrases)
+    possible_multi_table = ("join" in tags and len(target_mentions) > 1) or has_strong_relation_phrase
+    missing_slots: list[str] = []
+    if not target_mentions:
+        missing_slots.append("target_mentions")
+    if not condition_mentions and value_mentions:
+        missing_slots.append("condition_mentions")
+
+    confidence = 0.72
+    if target_mentions:
+        confidence += 0.1
+    if condition_mentions or metrics or dimensions:
+        confidence += 0.08
+    if missing_slots:
+        confidence -= 0.12 * len(missing_slots)
+    confidence = max(0.0, min(confidence, 0.95))
+
     return {
         "intent": intent,
         "target_mentions": target_mentions,
@@ -353,7 +394,10 @@ def _fallback_query_understanding(question: str, catalog: SchemaCatalog | None =
         "sort": sort,
         "limit": limit,
         "time_range": time_range,
-        "requires_join_hint": "join" in tags,
+        "requires_join_hint": possible_multi_table,
+        "possible_multi_table": possible_multi_table,
+        "missing_slots": missing_slots,
+        "confidence": confidence,
         "tags": tags,
         "source": "deterministic",
     }
@@ -404,6 +448,10 @@ def _normalize_query_understanding_payload(
     result["aggregation"] = payload.get("aggregation", fallback.get("aggregation"))
     result["time_range"] = payload.get("time_range", fallback.get("time_range"))
     result["requires_join_hint"] = bool(payload.get("requires_join_hint", fallback.get("requires_join_hint", False)))
+    result["possible_multi_table"] = bool(payload.get("possible_multi_table", fallback.get("possible_multi_table", result["requires_join_hint"])))
+    result["missing_slots"] = payload.get("missing_slots", fallback.get("missing_slots", [])) if isinstance(payload.get("missing_slots", fallback.get("missing_slots", [])), list) else []
+    raw_confidence = payload.get("confidence", fallback.get("confidence", 0.0))
+    result["confidence"] = raw_confidence if isinstance(raw_confidence, int | float) else fallback.get("confidence", 0.0)
     result["ambiguities"] = payload.get("ambiguities", []) if isinstance(payload.get("ambiguities", []), list) else []
     for key in ["value_terms", "metrics", "dimensions", "filters"]:
         value = payload.get(key, fallback.get(key, []))
@@ -484,26 +532,19 @@ def _normalize_sql_plan_candidate(
     distinct = bool(fallback_plan.get("distinct", False) or candidate.get("distinct", False))
 
     return {
+        **fallback_plan,
         "select": select_items,
-        "from_table": from_table,
+        "from_table": from_table or fallback_plan.get("from_table"),
         "joins": joins,
         "where": where_clauses,
-        "group_by": group_by_items,
-        "having": [],
+        "group_by": group_by_items or fallback_plan.get("group_by", []),
+        "having": fallback_plan.get("having", []),
         "order_by": order_by_items,
-        "limit": candidate.get("limit") if isinstance(candidate.get("limit"), int) and candidate.get("limit") else fallback_plan.get("limit"),
+        "limit": candidate.get("limit") if isinstance(candidate.get("limit"), int) else fallback_plan.get("limit"),
         "distinct": distinct,
         "params": params,
-        "provenance": {
-            "select": "schema_linking",
-            "from_table": "schema_linking" if from_table else None,
-            "joins": "join_path_planning" if joins else None,
-            "where": "value_linking" if where_clauses or value_links else None,
-            "group_by": "llm_planning" if group_by_items else None,
-            "order_by": "llm_planning" if order_by_items else fallback_plan.get("provenance", {}).get("order_by"),
-            "limit": "llm_planning" if isinstance(candidate.get("limit"), int) else fallback_plan.get("provenance", {}).get("limit"),
-            "distinct": "join_path_planning" if distinct else None,
-        },
+        "provenance": fallback_plan.get("provenance", {}),
+        "source": "llm_plan" if candidate else fallback_plan.get("source", "fallback"),
     }
 
 
@@ -516,26 +557,32 @@ def _build_query_understanding_prompt(
         "You are a query-understanding planner for an NL2SQL agent.",
         "Return only one JSON object.",
         "Extract user intent without generating SQL.",
-        "Keys: intent, target_mentions, condition_mentions, value_mentions, aggregation, group_by, order_by, limit, time_range, requires_join_hint, ambiguities.",
+        "Keys: intent, target_mentions, condition_mentions, value_mentions, aggregation, group_by, order_by, limit, time_range, possible_multi_table, missing_slots, confidence, requires_join_hint, ambiguities.",
         "condition_mentions must be a list of objects like {\"mention\": \"状态\"}.",
         "order_by items should include table, column, direction when confident.",
+        "Use the compact schema terms only as hints; do not invent tables, fields, joins, or SQL.",
     ]
 
-    # 注入当前 schema 的表名和关键业务术语
     if catalog and catalog.tables:
         table_names = [table.name for table in catalog.tables]
-        all_business_terms: list[str] = []
+        schema_terms: list[str] = []
         for table in catalog.tables:
-            all_business_terms.extend(t for t in table.business_terms if t.strip())
+            for value in [table.name, table.description, *table.aliases, *table.business_terms]:
+                text = str(value or "").strip()
+                if text:
+                    schema_terms.append(text)
             for column in table.columns:
-                all_business_terms.extend(t for t in column.business_terms if t.strip())
-        unique_terms = list(dict.fromkeys(all_business_terms))[:20]
+                for value in [column.name, column.description, *column.aliases, *column.business_terms, *column.sample_values[:3]]:
+                    text = str(value or "").strip()
+                    if text:
+                        schema_terms.append(text)
+        unique_terms = list(dict.fromkeys(schema_terms))[:40]
         parts.append(f"Available tables: {', '.join(table_names)}")
         if unique_terms:
-            parts.append(f"Key business terms: {', '.join(unique_terms)}")
+            parts.append(f"Compact schema terms: {', '.join(unique_terms)}")
 
     parts.append(f"Question: {question}")
-    parts.append(f"Fallback understanding for reference: {json.dumps(fallback, ensure_ascii=False)}")
+    parts.append(f"Fallback JSON: {json.dumps(fallback, ensure_ascii=False)}")
     return "\n".join(parts)
 
 
@@ -704,10 +751,9 @@ def _detect_question_tags(question: str) -> list[str]:
         # 英文
         "join",
         # 中文技术术语
-        "关联", "同时", "以及", "和", "对应",
+        "关联", "对应", "及其",
         # 中文口语化关联表达
-        "属于", "包含", "对应的是", "相关的",
-        "一起", "连同", "带上", "附带",
+        "属于", "包含", "对应的是", "相关的", "映射到", "连到",
     ]
     if any(keyword in normalized_question for keyword in join_keywords):
         tags.append("join")
@@ -717,28 +763,37 @@ def _detect_question_tags(question: str) -> list[str]:
 
     return tags
 
-
 def query_understanding(state: AgentState, llm_service: LLMService, catalog: SchemaCatalog | None = None) -> AgentState:
     question = state.get("question", "").strip()
-    fallback_understanding = _fallback_query_understanding(question, catalog)
+    normalization = QueryNormalizer().normalize(question)
+    normalized_question = normalization.normalized_question
+    fallback_understanding = _fallback_query_understanding(normalized_question, catalog)
+    fallback_understanding.setdefault("original_question", normalization.original_question)
+    fallback_understanding.setdefault("normalized_question", normalized_question)
+
+    base_result: AgentState = {
+        "query_normalization": normalization.to_dict(),
+        "normalized_question": normalized_question,
+    }
     model = llm_service.build_chat_model()
     if model is None:
-        return {"query_understanding": fallback_understanding}
+        return {**base_result, "query_understanding": fallback_understanding}
 
     payload = _invoke_model_json(
         model,
-        _build_query_understanding_prompt(question, fallback_understanding, catalog),
+        _build_query_understanding_prompt(normalized_question, fallback_understanding, catalog),
     )
     if payload is None:
-        return {"query_understanding": fallback_understanding}
+        return {**base_result, "query_understanding": fallback_understanding}
 
-    return {
-        "query_understanding": _normalize_query_understanding_payload(
-            question,
-            payload,
-            fallback_understanding,
-        )
-    }
+    understanding = _normalize_query_understanding_payload(
+        normalized_question,
+        payload,
+        fallback_understanding,
+    )
+    understanding.setdefault("original_question", normalization.original_question)
+    understanding.setdefault("normalized_question", normalized_question)
+    return {**base_result, "query_understanding": understanding}
 
 
 def _select_few_shot_examples(question: str, limit: int = 3) -> list[dict[str, object]]:
@@ -879,10 +934,22 @@ def value_linking(state: AgentState, catalog: SchemaCatalog | None = None) -> Ag
     return {"value_links": [link.model_dump() for link in value_linking_result.value_links]}
 
 
-def join_path_planning(state: AgentState) -> AgentState:
-    # 从 query schema plan 中取出 join path planning 结果并铺平到 state。
-    query_schema_plan = state.get("query_schema_plan", {})
-    join_path_plan_result = cast(dict[str, Any], query_schema_plan.get("join_path_plan", {}))
+def build_candidate_tables(state: AgentState) -> AgentState:
+    result = CandidateTableBuilder().build(
+        cast(dict[str, object], state.get("query_understanding", {})),
+        cast(dict[str, object], state.get("schema_linking", {})),
+        cast(list[dict[str, object]], state.get("value_links", [])),
+    )
+    return {"candidate_tables": result.model_dump()}
+
+
+def join_path_planning(state: AgentState, catalog: SchemaCatalog | None = None) -> AgentState:
+    candidate_tables = cast(dict[str, Any], state.get("candidate_tables", {}))
+    if catalog is not None and candidate_tables.get("required_tables"):
+        join_path_plan_result = JoinPathPlanner().plan_from_candidate_tables(candidate_tables, catalog).model_dump()
+    else:
+        query_schema_plan = state.get("query_schema_plan", {})
+        join_path_plan_result = cast(dict[str, Any], query_schema_plan.get("join_path_plan", {}))
     return {
         "join_path_plan": join_path_plan_result,
         "join_planning_summary": cast(str, join_path_plan_result.get("planning_summary", "")),
@@ -913,10 +980,77 @@ def sql_planning(state: AgentState, llm_service: LLMService, catalog: SchemaCata
         value_links=value_links,
         join_path_plan=join_path_plan,
     ).model_dump()
+    candidate_plan_bundle = CandidateSQLPlanBuilder().build(
+        query_understanding=query_understanding,
+        schema_linking=schema_linking,
+        value_links=value_links,
+        candidate_tables=cast(dict[str, Any], state.get("candidate_tables", {})),
+        join_path_plan=join_path_plan,
+    )
+    candidate_plans = [item.model_dump() for item in candidate_plan_bundle.candidates]
+    selected_candidate_plan_id = candidate_plan_bundle.selected_plan_id
+    planner = SQLPlanner()
+    selected_candidate = planner.select_from_candidates(candidate_plans)
+    if selected_candidate is not None:
+        fallback_plan = selected_candidate.model_dump()
+
+    confidence_decision = ConfidenceJudge().judge(
+        schema_linking=schema_linking,
+        value_links=value_links,
+        join_path_plan=join_path_plan,
+        candidate_plans=candidate_plans,
+        candidate_tables=cast(dict[str, Any], state.get("candidate_tables", {})),
+        validation_failed=bool(state.get("validation_errors")),
+    )
+    confidence_payload = confidence_decision.model_dump()
+    rerank_result: dict[str, Any] = {
+        "applied": False,
+        "selected_plan_id": selected_candidate_plan_id,
+        "reason": "high_confidence_skip",
+    }
 
     model = llm_service.build_chat_model()
     if model is None:
-        return {"sql_plan": fallback_plan, "sql_params": cast(list[object], fallback_plan.get("params", []))}
+        return {
+            "sql_plan": fallback_plan,
+            "sql_params": cast(list[object], fallback_plan.get("params", [])),
+            "candidate_plans": candidate_plans,
+            "selected_candidate_plan_id": selected_candidate_plan_id,
+            "confidence_judge": confidence_payload,
+            "rerank_result": rerank_result,
+        }
+
+    if confidence_decision.needs_rerank and candidate_plans:
+        reranker = LLMPlanReranker()
+        rerank_prompt = (
+            "你是 SQL Plan 重排器。只能返回 JSON："
+            "{\"selected_plan_id\":\"...\"} 或 "
+            "{\"based_on_plan_id\":\"...\",\"revised_plan\":{...}}。"
+            "禁止输出 SQL 字符串。"
+            f"候选信息：{json.dumps(reranker.compact_payload(question=str(state.get('question', '')), candidate_plans=candidate_plans, confidence=confidence_payload), ensure_ascii=False)}"
+        )
+        rerank_payload = _invoke_model_json(model, rerank_prompt)
+        if isinstance(rerank_payload, dict):
+            rerank_validation = reranker.validate_result(
+                payload=rerank_payload,
+                candidate_plans=candidate_plans,
+            )
+            rerank_result = rerank_validation.model_dump()
+            if rerank_validation.accepted and rerank_validation.selected_plan_id:
+                selected_candidate_plan_id = rerank_validation.selected_plan_id
+                selected_candidate = next(
+                    (
+                        item
+                        for item in candidate_plans
+                        if str(item.get("plan_id")) == rerank_validation.selected_plan_id
+                    ),
+                    None,
+                )
+                if isinstance(selected_candidate, dict):
+                    chosen_plan = dict(cast(dict[str, Any], selected_candidate.get("sql_plan", fallback_plan)))
+                    if rerank_validation.revised_plan:
+                        chosen_plan.update(rerank_validation.revised_plan)
+                    fallback_plan = chosen_plan
 
     few_shot_examples = FewShotManager(catalog).select_examples(cast(str, state.get("question", "")))
     payload = _invoke_model_json(
@@ -934,7 +1068,14 @@ def sql_planning(state: AgentState, llm_service: LLMService, catalog: SchemaCata
         ),
     )
     if payload is None:
-        return {"sql_plan": fallback_plan, "sql_params": cast(list[object], fallback_plan.get("params", []))}
+        return {
+            "sql_plan": fallback_plan,
+            "sql_params": cast(list[object], fallback_plan.get("params", [])),
+            "candidate_plans": candidate_plans,
+            "selected_candidate_plan_id": selected_candidate_plan_id,
+            "confidence_judge": confidence_payload,
+            "rerank_result": rerank_result,
+        }
 
     sql_plan = _normalize_sql_plan_candidate(
         payload,
@@ -942,7 +1083,14 @@ def sql_planning(state: AgentState, llm_service: LLMService, catalog: SchemaCata
         schema_linking,
         value_links,
     )
-    return {"sql_plan": sql_plan, "sql_params": cast(list[object], sql_plan.get("params", []))}
+    return {
+        "sql_plan": sql_plan,
+        "sql_params": cast(list[object], sql_plan.get("params", [])),
+        "candidate_plans": candidate_plans,
+        "selected_candidate_plan_id": selected_candidate_plan_id,
+        "confidence_judge": confidence_payload,
+        "rerank_result": rerank_result,
+    }
 
 
 def sql_repairing(state: AgentState, llm_service: LLMService) -> AgentState:
@@ -1161,14 +1309,22 @@ def finalize_response(state: AgentState) -> AgentState:
     join_path_debug = state.get("join_path_plan", {})
     debug_trace.update(
         {
+            "normalized_question": state.get("normalized_question", ""),
+            "query_normalization": state.get("query_normalization", {}),
             "query_understanding": state.get("query_understanding", {}),
             "schema_linking": schema_linking_debug,
             "schema_links": schema_linking_debug,
             "value_links": state.get("value_links", []),
+            "candidate_tables": state.get("candidate_tables", {}),
             "join_path_plan": join_path_debug,
             "join_paths": join_path_debug,
+            "candidate_plans": state.get("candidate_plans", []),
+            "selected_candidate_plan_id": state.get("selected_candidate_plan_id"),
+            "confidence_judge": state.get("confidence_judge", {}),
+            "rerank": state.get("rerank_result", {}),
             "semantic_brief": state.get("business_semantic_brief", {}),
             "sql_plan": state.get("sql_plan", {}),
+            "final_sql_plan": state.get("sql_plan", {}),
             "validation": {"errors": validation_errors, "issues": validation_issues},
             "validation_errors": validation_errors,
             "validation_issues": validation_issues,

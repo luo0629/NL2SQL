@@ -21,6 +21,13 @@ def build_catalog() -> SchemaCatalog:
                         data_type="decimal",
                         nullable=True,
                     ),
+                    SchemaColumn(
+                        name="flavor_value",
+                        data_type="varchar",
+                        nullable=True,
+                        aliases=["口味"],
+                        sample_values=["甜味", "微辣"],
+                    ),
                 ],
             )
         ],
@@ -71,6 +78,71 @@ def test_value_linker_matches_normalized_mapping_value() -> None:
 
     assert link.db_value == "1"
     assert link.match_type == "normalized"
+
+
+def test_value_linker_matches_sample_values_with_like_intent() -> None:
+    result = ValueLinker().link(
+        {
+            "condition_mentions": [{"mention": "口味"}],
+            "value_mentions": ["甜的"],
+        },
+        build_schema_linking("flavor_value"),
+        build_catalog(),
+    )
+
+    link = result.value_links[0]
+
+    assert link.table == "dish"
+    assert link.column == "flavor_value"
+    assert link.db_value == "甜味"
+    assert link.match_type == "normalized"
+    assert link.source == "sample"
+    assert link.operator == "LIKE"
+    assert link.evidence[0]["source"] == "sample_value"
+
+
+def test_value_linker_uses_current_schema_sample_values_for_other_domain() -> None:
+    catalog = SchemaCatalog(
+        database="crm",
+        tables=[
+            SchemaTable(
+                name="customer",
+                columns=[
+                    SchemaColumn(
+                        name="level_name",
+                        data_type="varchar",
+                        nullable=True,
+                        aliases=["等级"],
+                        sample_values=["黄金会员", "普通会员"],
+                    )
+                ],
+            )
+        ],
+    )
+    schema_linking = {
+        "matched_tables": [
+            {
+                "table_name": "customer",
+                "matched_columns": [{"column_name": "level_name"}],
+            }
+        ]
+    }
+
+    result = ValueLinker().link(
+        {
+            "condition_mentions": [{"mention": "等级"}],
+            "value_mentions": ["黄金"],
+        },
+        schema_linking,
+        catalog,
+    )
+
+    link = result.value_links[0]
+
+    assert link.table == "customer"
+    assert link.column == "level_name"
+    assert link.db_value == "黄金会员"
+    assert link.operator == "LIKE"
 
 
 def test_value_linker_keeps_numeric_typed_literal() -> None:

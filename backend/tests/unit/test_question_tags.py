@@ -83,7 +83,11 @@ class TestDetectQuestionTags:
 
     def test_join_technical(self):
         assert "join" in _detect_question_tags("关联查询订单和用户")
-        assert "join" in _detect_question_tags("同时查看菜品和分类")
+        assert "join" in _detect_question_tags("订单及其下单用户信息")
+
+    def test_weak_connector_should_not_force_join(self):
+        tags = _detect_question_tags("查询菜品价格和状态")
+        assert "join" not in tags
 
     def test_detail_fallback(self):
         tags = _detect_question_tags("查询所有数据")
@@ -168,6 +172,35 @@ class TestExtractCatalogBusinessTerms:
         # dimension/foreign_key/timestamp 列的 description 作为条件标记
         assert "状态" in markers
 
+
+    def test_extracts_aliases_and_sample_values(self):
+        catalog = SchemaCatalog(
+            database="generic",
+            tables=[
+                SchemaTable(
+                    name="product",
+                    aliases=["商品"],
+                    columns=[
+                        SchemaColumn(
+                            name="flavor_value",
+                            data_type="VARCHAR",
+                            nullable=True,
+                            aliases=["口味"],
+                            business_terms=["味道"],
+                            sample_values=["甜味", "微辣"],
+                            semantic_role="dimension",
+                        )
+                    ],
+                )
+            ],
+        )
+
+        terms, markers = _extract_catalog_business_terms(catalog)
+
+        assert "口味" in terms
+        assert "甜味" in terms
+        assert "口味" in markers
+
     def test_no_catalog(self):
         terms, markers = _extract_catalog_business_terms(None)
         assert terms == []
@@ -180,6 +213,15 @@ class TestFallbackQueryUnderstanding:
         result = _fallback_query_understanding("查询订单金额", catalog)
         assert "target_mentions" in result
         assert "订单表" in result["target_mentions"] or "金额" in result["target_mentions"]
+
+
+    def test_outputs_multi_table_missing_slots_and_confidence(self):
+        catalog = _make_catalog()
+        result = _fallback_query_understanding("查询订单和菜品", catalog)
+
+        assert result["possible_multi_table"] is False
+        assert isinstance(result["missing_slots"], list)
+        assert 0 <= result["confidence"] <= 1
 
     def test_no_catalog(self):
         result = _fallback_query_understanding("查询订单", None)

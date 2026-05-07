@@ -4,6 +4,10 @@ from typing import Any, Literal, TypedDict
 class AgentState(TypedDict, total=False):
     # 用户输入问题
     question: str
+    # Query Normalize 阶段输出
+    query_normalization: dict[str, Any]
+    # 归一化后的用户问题
+    normalized_question: str
     # Query Understanding 阶段输出
     query_understanding: dict[str, Any]
     # RAG 或规则检索出的 schema 摘要
@@ -14,8 +18,17 @@ class AgentState(TypedDict, total=False):
     schema_linking: dict[str, Any]
     # Value Linking 阶段输出
     value_links: list[dict[str, Any]]
+    # 候选表构建结果
+    candidate_tables: dict[str, Any]
     # 连表规划结果
     join_path_plan: dict[str, Any]
+    # 候选 SQL Plan 列表与选择结果
+    candidate_plans: list[dict[str, Any]]
+    selected_candidate_plan_id: str
+    # 置信度评估结果
+    confidence_judge: dict[str, Any]
+    # rerank 过程结果
+    rerank_result: dict[str, Any]
     # 业务语义说明
     business_semantic_brief: dict[str, Any]
     # schema linking 阶段摘要
