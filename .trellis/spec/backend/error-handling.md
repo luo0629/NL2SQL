@@ -7,7 +7,7 @@
 ## Validation and Domain Errors
 
 - `DangerousSQLError` in `app/utils/exceptions.py` is the main safety exception for unsafe SQL.
-- `SQLValidator` owns read-only checks plus plan provenance / plan-match validation in `app/validator/sql_validator.py`.
+- `SQLValidator` owns read-only safety checks in `app/validator/sql_validator.py`; the graph performs EXPLAIN preflight after read-only validation.
 - Unsafe SQL should surface as validation issues in agent state, not as unstructured router errors.
 
 ---

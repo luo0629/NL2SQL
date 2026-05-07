@@ -4,11 +4,8 @@ import asyncio
 import time
 
 from app.config import get_settings
-from app.rag.join_path_planner import JoinPathPlanner
-from app.rag.retriever import SchemaRetriever
-from app.rag.schema_models import SchemaCatalog
+from app.rag.schema_models import SchemaCatalog, SchemaTable
 from app.rag.schema_sync import sync_schema_metadata
-from app.rag.semantic_brief import BusinessSemanticBriefBuilder, QuerySchemaPlan
 
 
 _catalog_cache: dict[str, SchemaCatalog] = {}
@@ -47,30 +44,95 @@ async def _get_schema_catalog(refresh: bool = False) -> SchemaCatalog:
         return catalog
 
 
+def _score_table(question: str, table: SchemaTable) -> int:
+    normalized = question.lower()
+    score = 0
+    for term in [table.name, table.description or "", *table.aliases, *table.business_terms, *table.searchable_terms]:
+        term = term.strip()
+        if term and term.lower() in normalized:
+            score += 4 if term == table.name else 2
+    for column in table.columns:
+        for term in [column.name, column.description or "", *column.business_terms]:
+            term = term.strip()
+            if term and term.lower() in normalized:
+                score += 1
+    return score
+
+
+def _quote_identifier(identifier: str) -> str:
+    return "`" + identifier.replace("`", "``") + "`"
+
+
+def _render_table_context(table: SchemaTable, catalog: SchemaCatalog, selected_tables: set[str]) -> str:
+    lines = [f"table {table.name}"]
+    if table.description:
+        lines.append(f"description: {table.description}")
+    if table.primary_keys:
+        lines.append(f"primary_keys: {', '.join(table.primary_keys)}")
+    lines.append("columns:")
+    for column in table.columns:
+        attrs = [column.data_type, "nullable" if column.nullable else "not null"]
+        if column.is_primary_key:
+            attrs.append("primary key")
+        if column.default is not None:
+            attrs.append(f"default: {column.default}")
+        if column.description:
+            attrs.append(f"description: {column.description}")
+        if column.semantic_role:
+            attrs.append(f"role: {column.semantic_role}")
+        if column.business_terms:
+            attrs.append(f"terms: {', '.join(column.business_terms)}")
+        lines.append(f"- {column.name} ({'; '.join(attrs)})")
+
+    relations = [
+        relation
+        for relation in catalog.relations
+        if relation.from_table in selected_tables and relation.to_table in selected_tables
+        and (relation.from_table == table.name or relation.to_table == table.name)
+    ]
+    if relations:
+        lines.append("relations:")
+        for relation in relations:
+            hint = f"; hint: {relation.join_hint}" if relation.join_hint else ""
+            relation_type = relation.relation_type or "relation"
+            lines.append(
+                f"- {_quote_identifier(relation.from_table)}.{_quote_identifier(relation.from_column)} -> "
+                f"{_quote_identifier(relation.to_table)}.{_quote_identifier(relation.to_column)} ({relation_type}{hint})"
+            )
+    return "\n".join(lines)
+
+
 class RagService:
-    async def build_query_schema_plan(
+    async def retrieve_relevant_schema(
         self,
         question: str,
-        query_understanding: dict[str, object] | None = None,
+        *,
+        relevant_tables: list[str] | None = None,
         refresh_schema: bool = False,
-    ) -> QuerySchemaPlan:
+        limit: int = 4,
+    ) -> list[str]:
         catalog = await _get_schema_catalog(refresh=refresh_schema)
-        retriever = SchemaRetriever(catalog)
-        linking_result = retriever.link(question, query_understanding=query_understanding)
-        join_path_plan = JoinPathPlanner().plan(linking_result, catalog)
-        business_semantic_brief = BusinessSemanticBriefBuilder().build(
-            question,
-            linking_result,
-            join_path_plan,
-        )
-        schema_context = retriever.render_linking_result(linking_result)
-        return QuerySchemaPlan(
-            schema_context=schema_context,
-            schema_linking=linking_result,
-            join_path_plan=join_path_plan,
-            business_semantic_brief=business_semantic_brief,
-        )
+        if not catalog.tables:
+            return []
 
-    async def retrieve_relevant_schema(self, question: str) -> list[str]:
-        plan = await self.build_query_schema_plan(question)
-        return plan.schema_context
+        table_by_name = {table.name: table for table in catalog.tables}
+        selected_names = [name for name in relevant_tables or [] if name in table_by_name]
+        if not selected_names:
+            scored = [
+                (table.name, _score_table(question, table), index)
+                for index, table in enumerate(catalog.tables)
+            ]
+            selected_names = [
+                name
+                for name, score, _index in sorted(scored, key=lambda item: (-item[1], item[2]))
+                if score > 0
+            ]
+        if not selected_names:
+            selected_names = [table.name for table in catalog.tables]
+
+        selected_names = list(dict.fromkeys(selected_names))[:limit]
+        selected_set = set(selected_names)
+        return [
+            _render_table_context(table_by_name[name], catalog, selected_set)
+            for name in selected_names
+        ]

@@ -17,14 +17,14 @@ async def test_rag_service_returns_real_schema_context() -> None:
 
 
 @pytest.mark.anyio
-async def test_rag_service_builds_query_schema_plan() -> None:
+async def test_rag_service_limits_context_to_requested_real_tables() -> None:
     service = RagService()
 
-    plan = await service.build_query_schema_plan("查询客户下单状态和用户信息")
+    context = await service.retrieve_relevant_schema(
+        "查询菜品",
+        relevant_tables=["dish", "missing_table"],
+    )
 
-    assert plan.schema_context
-    assert plan.schema_linking.matched_tables
-    assert plan.join_path_plan.primary_table is not None
-    assert plan.business_semantic_brief.business_entities
-    assert "## Business semantic brief" in plan.business_semantic_brief.prompt_block
-    assert plan.business_semantic_brief.join_path_summary
+    joined = "\n".join(context)
+    assert "table dish" in joined
+    assert "missing_table" not in joined

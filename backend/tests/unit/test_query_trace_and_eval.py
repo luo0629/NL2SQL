@@ -91,11 +91,12 @@ async def test_agent_service_response_includes_debug_trace() -> None:
     assert response.params is not None
     assert response.debug is not None
     assert set(response.debug) >= {
-        "query_understanding",
-        "schema_links",
-        "value_links",
-        "join_paths",
-        "sql_plan",
+        "intent_parser",
+        "schema_retriever",
+        "sql_generator",
+        "sql_validator",
+        "sql_executor",
+        "result_formatter",
         "validation_errors",
         "validation_issues",
         "fallback",

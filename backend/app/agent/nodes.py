@@ -217,24 +217,12 @@ def _build_intent_result(
         "relevant_tables": relevant_tables,
         "llm_error": llm_error,
     }
-    # 兼容旧 debug contract：query_understanding 现在指向简化意图结果。
-    debug_trace["query_understanding"] = {
-        "intent": intent,
-        "relevant_tables": relevant_tables,
-        "source": source,
-    }
-    query_understanding_payload = {
-        "intent": intent,
-        "relevant_tables": relevant_tables,
-        "source": source,
-    }
     return {
         "user_input": question,
         "question": question,
         "intent": intent,
         "relevant_tables": relevant_tables,
         "available_tables": table_names,
-        "query_understanding": query_understanding_payload,
         "debug_trace": debug_trace,
     }
 
@@ -331,21 +319,10 @@ def schema_retriever(state: AgentState, catalog: SchemaCatalog | None = None) ->
         "tables": [table.name for table in selected_tables],
         "schema_context_chars": len(schema_context),
     }
-    # 兼容旧 debug contract。
-    debug_trace["schema_links"] = {"matched_tables": [table.name for table in selected_tables]}
-    debug_trace["value_links"] = []
-    debug_trace["join_paths"] = {"relations": len(catalog.relations) if catalog else 0}
     matched_table_names = [table.name for table in selected_tables]
     return {
         "schema_context": schema_context,
         "relevant_tables": matched_table_names,
-        "query_schema_plan": {"schema_context": schema_context, "matched_tables": matched_table_names},
-        "schema_linking": {"matched_tables": matched_table_names, "linking_summary": f"命中表: {', '.join(matched_table_names)}。"},
-        "join_path_plan": {"relations": len(catalog.relations) if catalog else 0},
-        "business_semantic_brief": {"intent": state.get("intent", "")},
-        "linking_summary": f"命中表: {', '.join(matched_table_names)}。",
-        "join_planning_summary": "已按相关表保留真实 schema 关系信息。",
-        "value_links": [],
         "debug_trace": debug_trace,
     }
 
@@ -426,10 +403,6 @@ def _build_sql_generator_result(
         "used_fallback": used_fallback,
         "had_validation_error": bool(state.get("validation_error")),
         "llm_error": llm_error,
-    }
-    debug_trace["sql_plan"] = {
-        "mode": "direct_sql_generation",
-        "removed": "SemanticQuery/sql_plan 主路径已旁路",
     }
     return {
         "generated_sql": generated_sql,
@@ -717,151 +690,3 @@ async def async_result_formatter(state: AgentState, llm_service: LLMService) -> 
         final_answer=final_answer,
         llm_error=llm_error,
     )
-
-
-def _detect_question_tags(question: str) -> list[str]:
-    normalized = question.strip().lower()
-    tags: list[str] = []
-    if any(keyword in normalized for keyword in ["sum", "count", "avg", "total", "总", "统计", "汇总", "平均", "收入", "销售额", "金额", "卖得好", "最受欢迎", "最热门", "销量", "最多", "最少", "有多少", "多少个", "排行", "排名"]):
-        tags.append("aggregation")
-    if any(keyword in normalized for keyword in ["year", "today", "yesterday", "recent", "latest", "最近", "近期", "这几天", "这个月", "这周", "今年", "去年", "昨天", "今天", "30天", "天", "周", "月", "年"]):
-        tags.append("time-range")
-    if any(keyword in normalized for keyword in ["top", "best", "worst", "最高", "最低", "排行", "排名", "前", "最贵", "最便宜", "最好", "最差", "最受欢迎", "最热门", "最火"]):
-        tags.append("top-n")
-    if any(keyword in normalized for keyword in ["join", "关联", "同时", "以及", "和", "对应", "属于", "包含", "哪些口味", "连同"]):
-        tags.append("join")
-    return tags or ["detail"]
-
-
-def _infer_primary_table(question: str, catalog: SchemaCatalog | None = None) -> str | None:
-    tables = _catalog_tables(catalog)
-    if not tables:
-        return None
-    if not question.strip():
-        return tables[0].name
-    scored = [(table.name, _table_score(question, table), index) for index, table in enumerate(tables)]
-    name, score, _index = sorted(scored, key=lambda item: (-item[1], item[2]))[0]
-    return name if score > 0 else None
-
-
-def _extract_catalog_business_terms(catalog: SchemaCatalog | None) -> tuple[list[str], list[str]]:
-    if not catalog or not catalog.tables:
-        return [], []
-    terms: list[str] = []
-    markers: list[str] = []
-    for table in catalog.tables:
-        terms.extend(item for item in [table.description, *table.aliases, *table.business_terms] if item)
-        for column in table.columns:
-            terms.extend(item for item in [column.description, *column.business_terms] if item)
-            if column.semantic_role in {"dimension", "foreign_key", "timestamp"}:
-                markers.extend(item for item in [column.description, *column.business_terms] if item)
-    return list(dict.fromkeys(terms)), list(dict.fromkeys(markers))
-
-
-def _fallback_query_understanding(question: str, catalog: SchemaCatalog | None = None) -> dict[str, Any]:
-    tags = _detect_question_tags(question)
-    terms, markers = _extract_catalog_business_terms(catalog)
-    target_mentions = [term for term in (terms or ["客户", "用户", "订单", "菜品", "金额"]) if term and term in question]
-    condition_mentions = [{"mention": marker} for marker in (markers or ["状态", "分类", "价格", "金额", "时间"]) if marker and marker in question]
-    limit_match = re.search(r"(?:top\s*|前\s*)(\d+)", question.lower())
-    order_by: list[dict[str, object]] = []
-    if any(keyword in question.lower() for keyword in ["最高", "最多", "top", "desc", "最贵", "最热门"]):
-        order_by.append({"direction": "DESC"})
-    elif any(keyword in question.lower() for keyword in ["最低", "最少", "asc", "最便宜"]):
-        order_by.append({"direction": "ASC"})
-    return {
-        "intent": "aggregate" if "aggregation" in tags else "select",
-        "target_mentions": target_mentions,
-        "condition_mentions": condition_mentions,
-        "value_mentions": re.findall(r"[“”‘’\"']([^“”‘’\"']+)[“”‘’\"']", question),
-        "aggregation": {"type": "auto"} if "aggregation" in tags else None,
-        "group_by": [],
-        "order_by": order_by,
-        "limit": int(limit_match.group(1)) if limit_match else None,
-        "time_range": {"type": "relative"} if "time-range" in tags else None,
-        "requires_join_hint": "join" in tags,
-        "tags": tags,
-        "source": "deterministic",
-    }
-
-
-def _load_nl2sql_prompt() -> str:
-    from functools import lru_cache
-    from pathlib import Path
-
-    @lru_cache(maxsize=1)
-    def _load() -> str:
-        prompt_path = Path(__file__).resolve().parents[1] / "prompts" / "nl2sql_prompt.txt"
-        return prompt_path.read_text(encoding="utf-8").strip()
-
-    return _load()
-
-
-def _load_few_shot_examples() -> list[dict[str, object]]:
-    from functools import lru_cache
-    from pathlib import Path
-
-    @lru_cache(maxsize=1)
-    def _load() -> list[dict[str, object]]:
-        examples_path = Path(__file__).resolve().parents[1] / "prompts" / "few_shot_examples.json"
-        if not examples_path.exists():
-            return []
-        raw_examples = json.loads(examples_path.read_text(encoding="utf-8"))
-        if not isinstance(raw_examples, list):
-            return []
-        return [example for example in raw_examples if isinstance(example, dict) and isinstance(example.get("question"), str) and isinstance(example.get("sql"), str)]
-
-    return _load()
-
-
-def _select_few_shot_examples(question: str, limit: int = 3) -> list[dict[str, object]]:
-    question_tags = set(_detect_question_tags(question))
-    examples = _load_few_shot_examples()
-    scored = []
-    for index, example in enumerate(examples):
-        example_tags = set(cast(list[str], example.get("tags", [])))
-        overlap = len(question_tags & example_tags)
-        if overlap:
-            scored.append((overlap, index, example))
-    if scored:
-        return [example for _score, _index, example in sorted(scored, key=lambda item: (-item[0], item[1]))[:limit]]
-    return examples[:limit]
-
-
-def _build_prompt(
-    question: str,
-    schema_context: list[str],
-    business_semantic_brief: dict[str, Any] | None = None,
-    join_path_plan: dict[str, Any] | None = None,
-    schema_linking: dict[str, Any] | None = None,
-    catalog: SchemaCatalog | None = None,
-) -> str:
-    joined_schema = "\n".join(f"- {item}" for item in schema_context)
-    few_shot = _select_few_shot_examples(question)
-    formatted_examples = "\n\n".join(f"Example {index}:\nQuestion: {example['question']}\nSQL:\n{example['sql']}" for index, example in enumerate(few_shot, 1))
-    parts = [_load_nl2sql_prompt()]
-    if formatted_examples:
-        parts.append(f"## 6. Reference examples\nUse the following examples only as style and structure references.\n\n{formatted_examples}")
-    if business_semantic_brief and business_semantic_brief.get("prompt_block"):
-        parts.append(str(business_semantic_brief["prompt_block"]))
-    if schema_linking:
-        lines = ["## Schema linking plan"]
-        if schema_linking.get("linking_summary"):
-            lines.append(f"Summary: {schema_linking['linking_summary']}")
-        parts.append("\n".join(lines))
-    if join_path_plan:
-        lines = ["## Join path plan"]
-        if join_path_plan.get("plan_confidence"):
-            lines.append(f"Confidence: {join_path_plan['plan_confidence']}")
-        if join_path_plan.get("planning_summary"):
-            lines.append(f"Summary: {join_path_plan['planning_summary']}")
-        parts.append("\n".join(lines))
-    parts.append(f"## 7. Schema context\nUse this as the only source of truth.\n{joined_schema}")
-    parts.append(f"## 8. User question\n{question}")
-    parts.append("## 9. Final reminder\nReturn exactly one SQL statement ending with a semicolon.")
-    return "\n\n".join(parts)
-
-
-# 兼容少量旧单元测试或外部引用：旧 query_understanding 入口映射到新的 intent_parser。
-def query_understanding(state: AgentState, llm_service: LLMService, catalog: SchemaCatalog | None = None) -> AgentState:
-    return intent_parser(state, llm_service, catalog)

@@ -21,7 +21,7 @@ backend/
 │   ├── agent/                 # AgentState, LangGraph build, node functions
 │   ├── routers/               # HTTP routes (`query.py`)
 │   ├── services/              # AgentService, RagService, LLMService
-│   ├── rag/                   # Schema sync, retriever, linkers, planners, repairers
+│   ├── rag/                   # Schema sync, schema metadata enrichment, value mapping assets
 │   ├── database/              # engine, session, SQLExecutor
 │   ├── validator/             # SQLValidator read-only policy
 │   ├── schemas/               # Request/response and execution models
@@ -46,9 +46,9 @@ backend/
 | `routers/` | HTTP boundary and response model | `app/routers/query.py` keeps `POST /api/query` as one-line delegation to `AgentService.generate_sql()` |
 | `services/` | Dependency assembly and high-level orchestration | `app/services/agent_service.py` injects RAG, LLM, validator, and executor into `run_agent()` |
 | `agent/` | Shared agent state and LangGraph sequencing | `app/agent/graph.py` builds the full pipeline and `app/agent/state.py` defines the shared contract |
-| `rag/` | Schema retrieval and reasoning helpers | `app/rag/schema_sync.py`, `app/rag/schema_linker.py`, `app/rag/value_linker.py`, `app/rag/join_path_planner.py` |
+| `rag/` | Live schema metadata sync and enrichment helpers | `app/rag/schema_sync.py`, `app/rag/schema_enrichment.py`, `app/rag/value_mapping_loader.py` |
 | `database/` | SQL execution and connection lifecycle | `app/database/executor.py` validates and executes SQL through SQLAlchemy async connections |
-| `validator/` | SQL safety enforcement | `app/validator/sql_validator.py` owns read-only validation and plan provenance checks |
+| `validator/` | SQL safety enforcement | `app/validator/sql_validator.py` owns read-only validation before EXPLAIN/execution |
 
 ---
 
@@ -63,9 +63,11 @@ For any change in the main NL2SQL flow, trace the whole chain:
 5. `app/database/executor.py` executes validated SQL
 6. `app/schemas/query.py` defines the API contract returned to the frontend
 
-The current graph is broader than the earlier teaching skeleton. The real node order is:
+The current graph is the design-driven six-node NL2SQL flow. The real node order is:
 
-`query_understanding` → `retrieve_schema` → `schema_linking` → `value_linking` → `join_path_planning` → `build_semantic_brief` → `sql_planning` → `generate_sql` → `validate_sql` → (`sql_repairing` retry loop or `execute_sql`) → `finalize_response`
+`intent_parser` → `schema_retriever` → `sql_generator` → `sql_validator` → (`sql_generator` retry loop or `sql_executor`) → `result_formatter`
+
+Legacy `SemanticQuery`, SQL plan rendering, schema linking, value linking, join path planning, business semantic brief, SQL repair, and few-shot manager modules are no longer part of the main path and should not be reintroduced without a new design decision.
 
 ---
 
@@ -88,5 +90,5 @@ The current graph is broader than the earlier teaching skeleton. The real node o
 
 ## Common Mistakes
 
-- Updating only the old `retrieve_schema -> generate_sql -> validate_sql` mental model and forgetting the newer planning/linking nodes
+- Reintroducing the retired planning/linking path instead of using the current six-node graph
 - Changing `NLQueryResponse` fields without updating frontend parsing in `frontend/src/App.vue`

@@ -104,7 +104,7 @@ When changing the NL2SQL agent pipeline:
 - [ ] Reuse `LLMService` for model access; do not introduce a parallel provider/model configuration path
 - [ ] Reuse `SQLValidator` and `SQLExecutor`; do not run generated SQL directly from graph nodes, routers, or RAG helpers
 - [ ] Prefer replacing the graph main path over keeping two competing NL2SQL pipelines active
-- [ ] If `SemanticQuery`, `sql_plan`, `schema_linking`, `value_linking`, or `join_path` modules are no longer on the main path, either delete them with tests or explicitly mark them as legacy until the cleanup PR
+- [ ] Do not reintroduce the retired `SemanticQuery`, `sql_plan`, `schema_linking`, `value_linking`, or `join_path` pipeline unless a new design decision explicitly restores it
 
 ---
 

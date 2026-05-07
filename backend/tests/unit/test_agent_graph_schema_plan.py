@@ -227,7 +227,8 @@ async def test_agent_graph_runs_six_node_pipeline_and_returns_rows() -> None:
     assert state["validation_error"] == ""
     assert state["rows"] == [{"id": 1, "name": "Alice"}]
     assert state["final_answer"]
-    assert state["debug_trace"]["sql_plan"]["mode"] == "direct_sql_generation"
+    assert "sql_generator" in state["debug_trace"]
+    assert "sql_plan" not in state["debug_trace"]
 
 
 @pytest.mark.anyio

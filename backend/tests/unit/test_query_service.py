@@ -54,10 +54,9 @@ async def test_agent_service_returns_mock_response() -> None:
     assert response.columns == ["id", "name"]
     assert response.execution_summary == "查询执行成功，共返回 1 行。"
     assert response.debug is not None
-    assert "query_understanding" in response.debug
-    assert "schema_links" in response.debug
-    assert "join_paths" in response.debug
-    assert "sql_plan" in response.debug
+    assert "intent_parser" in response.debug
+    assert "schema_retriever" in response.debug
+    assert "sql_generator" in response.debug
     assert response.debug["fallback"] == {"used": False}
 
 

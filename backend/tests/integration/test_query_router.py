@@ -25,8 +25,8 @@ def test_query_endpoint(client: TestClient) -> None:
     assert payload["columns"] == ["id", "name"]
     assert payload["execution_summary"] == "查询执行成功，共返回 1 行。"
     debug = cast(dict[str, object], payload["debug"])
-    assert "query_understanding" in debug
-    assert "sql_plan" in debug
+    assert "intent_parser" in debug
+    assert "sql_generator" in debug
 
 
 def test_query_endpoint_includes_debug_trace_contract(client: TestClient) -> None:
@@ -37,11 +37,12 @@ def test_query_endpoint_includes_debug_trace_contract(client: TestClient) -> Non
     debug = cast(dict[str, object], payload["debug"])
 
     assert isinstance(payload["params"], list)
-    assert "query_understanding" in debug
-    assert "schema_links" in debug
-    assert "value_links" in debug
-    assert "join_paths" in debug
-    assert "sql_plan" in debug
+    assert "intent_parser" in debug
+    assert "schema_retriever" in debug
+    assert "sql_generator" in debug
+    assert "sql_validator" in debug
+    assert "sql_executor" in debug
+    assert "result_formatter" in debug
     assert "execution" in debug
 
 
