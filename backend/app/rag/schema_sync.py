@@ -103,12 +103,18 @@ async def sync_schema_metadata() -> SchemaCatalog:
             primary_keys_by_table: dict[str, list[str]] = {}
             foreign_keys: list[dict[str, object]] = []
             indexes_by_table: dict[str, list[str]] = {}
+            comments_by_table: dict[str, str | None] = {}
 
             for table_name in table_names:
                 primary_key = inspector.get_pk_constraint(table_name) or {}
                 constrained_columns = primary_key.get("constrained_columns") or []
                 primary_keys_by_table[table_name] = [str(column) for column in constrained_columns]
                 columns_by_table[table_name] = list(inspector.get_columns(table_name))
+                try:
+                    table_comment = inspector.get_table_comment(table_name) or {}
+                except NotImplementedError:
+                    table_comment = {}
+                comments_by_table[table_name] = str(table_comment.get("text") or "").strip() or None
                 indexes_by_table[table_name] = [
                     str(index.get("name"))
                     for index in inspector.get_indexes(table_name)
@@ -129,7 +135,7 @@ async def sync_schema_metadata() -> SchemaCatalog:
                         }
                     )
 
-            return table_names, columns_by_table, primary_keys_by_table, foreign_keys, indexes_by_table
+            return table_names, columns_by_table, primary_keys_by_table, foreign_keys, indexes_by_table, comments_by_table
 
         (
             table_names,
@@ -137,6 +143,7 @@ async def sync_schema_metadata() -> SchemaCatalog:
             primary_keys_by_table,
             foreign_keys,
             indexes_by_table,
+            comments_by_table,
         ) = await connection.run_sync(inspect_schema)
 
     tables: list[SchemaTable] = []
@@ -169,6 +176,7 @@ async def sync_schema_metadata() -> SchemaCatalog:
                     data_type=str(raw_type or "unknown"),
                     nullable=bool(raw_column.get("nullable", True)),
                     is_primary_key=column_name in primary_keys,
+                    default=str(raw_column.get("default")) if raw_column.get("default") is not None else None,
                     description=merge_column_description(
                         db_description=comment_value,
                         fallback_mapping=fallback_mapping,
@@ -179,7 +187,7 @@ async def sync_schema_metadata() -> SchemaCatalog:
             )
 
         table_enrichment = get_table_enrichment(enrichment, table_name)
-        table_description = TABLE_DESCRIPTIONS.get(table_name)
+        table_description = comments_by_table.get(table_name) or TABLE_DESCRIPTIONS.get(table_name)
         tables.append(
             SchemaTable(
                 name=table_name,

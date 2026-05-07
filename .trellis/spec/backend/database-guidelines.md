@@ -93,45 +93,55 @@ Real pattern from `_get_schema_catalog()`:
 
 ---
 
-## Scenario: SemanticQuery-gated NL2SQL execution
+## Scenario: Design-driven NL2SQL execution with real schema and EXPLAIN
 
 ### 1. Scope / Trigger
 
-- Trigger: NL2SQL generated SQL is executed against a real database and can later point at production by changing `Settings.database_url`.
-- Applies to: agent graph nodes, semantic query construction, SQL planning/generation, validation, and execution.
+- Trigger: NL2SQL generated SQL is validated and executed against a real database and can later point at production by changing `Settings.database_url`.
+- Applies to: `intent_parser`, `schema_retriever`, `sql_generator`, `sql_validator`, `sql_executor`, `result_formatter`, schema sync, validation, and execution.
 
 ### 2. Signatures
 
-- Semantic state field: `AgentState.semantic_query: dict[str, object]`
-- Gate state field: `AgentState.execution_gate: {"allowed": bool, "confidence": float, "threshold": float, "reasons": list[str]}`
-- Execution path: `SQLExecutor.execute(sql: str, params: list[object] | None = None, max_rows: int | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`
+- Graph main path: `intent_parser -> schema_retriever -> sql_generator -> sql_validator -> sql_executor -> result_formatter`.
+- Intent state fields: `AgentState.intent: str`, `AgentState.relevant_tables: list[str]`.
+- Schema state field: `AgentState.schema_context: list[str]`.
+- SQL state fields: `AgentState.generated_sql: str`, `AgentState.sql: str`, `AgentState.validation_error: str`, `AgentState.previous_sql: str`, `AgentState.retry_count: int`, `AgentState.max_retries: int`.
+- Execution path: `SQLExecutor.execute(sql: str, params: list[object] | None = None, max_rows: int | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
+- EXPLAIN path: `SQLExecutor.explain(sql: str, params: list[object] | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
 
 ### 3. Contracts
 
-- `semantic_query` is the primary NL2SQL semantic contract. It should carry intent, entities, metrics, dimensions, filters, time range, joins, order_by, limit, confidence, and clarification prompts.
-- `sql_plan` is a compatibility/debug/rendering layer derived from semantic input; do not treat it as the user-intent source of truth.
-- `execution_gate.allowed=false` means the SQL draft must not call `SQLExecutor`; response should explain why execution was skipped.
-- Database switching must stay behind `Settings.database_url`; do not branch logic on a hard-coded test database name.
+- `intent_parser` must choose candidate tables from the real schema catalog and programmatically drop LLM-returned tables that do not exist.
+- `schema_retriever` must render schema context only for `relevant_tables`; relationships are included only when both relation endpoints are selected.
+- Schema context should include field name, type, nullable, default, primary key marker, field/table descriptions or comments, and selected-table relations when available.
+- `sql_generator` must generate SQL directly from `question`, `intent`, `schema_context`, `previous_sql`, `validation_error`, and `retry_count`; do not route the main path through `SemanticQuery` or `sql_plan` rendering.
+- `sql_validator` must run read-only safety checks before any database interaction, then run `EXPLAIN` only for MySQL-compatible URLs.
+- Non-MySQL test/development URLs may skip `EXPLAIN` with debug metadata; they must not silently execute invalid SQL before read-only validation.
+- Database switching must stay behind `Settings.database_url`; do not branch on hard-coded test database names or table names.
 
 ### 4. Validation & Error Matrix
 
-- Unsafe SQL -> `SQLValidator` rejects before executor runs.
-- Low semantic/join/schema confidence -> `execution_gate.allowed=false`, no database call.
+- LLM selects nonexistent table -> filter it out before schema retrieval.
+- No relevant table selected -> deterministic fallback chooses a bounded set of real catalog tables.
+- Unsafe SQL -> `SQLValidator` rejects before `EXPLAIN` and before execution.
+- MySQL `EXPLAIN` failure -> set `validation_error`, increment retry count, and retry generation until `max_retries`.
+- Non-MySQL URL -> skip `EXPLAIN` with controlled debug reason, then rely on read-only validation and executor behavior.
 - Execution timeout -> structured `SQLExecutionResult` with timeout summary.
 - SQLAlchemy runtime error -> structured failure summary with error class only.
 
 ### 5. Good/Base/Bad Cases
 
-- Good: high-confidence schema-grounded query executes through `SQLExecutor` and returns rows, columns, row_count, and execution_summary.
-- Base: low-confidence query returns SQL draft plus clarification/explanation and does not query the database.
-- Bad: generated SQL is executed directly in a router, service, RAG helper, or frontend confirmation path.
+- Good: LLM picks real tables, schema context includes comments/defaults, generated SELECT passes read-only and MySQL `EXPLAIN`, then executes through `SQLExecutor`.
+- Base: LLM unavailable; fallback picks real catalog tables and generates a conservative SELECT over real schema.
+- Bad: SQL is generated from a template plan, static hard-coded schema, or `SemanticQuery/sql_plan` main-path rendering.
 
 ### 6. Tests Required
 
-- Unit: SemanticQuery builder computes confidence and clarification prompts.
-- Unit: SQLPlanner consumes `semantic_query.filters` as the WHERE source while preserving parameterized `:pN` placeholders.
-- Graph/integration: low-confidence state does not call executor.
-- Graph/integration: high-confidence state executes and returns normalized result fields.
+- Unit/graph: hallucinated table names are filtered from `relevant_tables`.
+- Unit/graph: `schema_retriever` only renders selected tables and selected-table relations.
+- Unit/graph: schema context includes default values and comments when available.
+- Unit/graph: validation failure retries generation up to `max_retries=3` and never executes failed SQL.
+- Unit/integration: high-level query returns `sql`, `rows`, `columns`, `row_count`, and `execution_summary` through the existing API contract.
 
 ### 7. Wrong vs Correct
 
@@ -139,15 +149,17 @@ Real pattern from `_get_schema_catalog()`:
 
 ```python
 sql_plan = SQLPlanner().build(query_understanding, schema_linking, value_links, join_path_plan)
-result = await executor.execute(SQLGenerator().generate(sql_plan).sql)
+generated = SQLGenerator().generate(sql_plan.model_dump())
+result = await executor.execute(generated.sql)
 ```
 
 #### Correct
 
 ```python
-semantic_query = SemanticQueryBuilder().build(query_understanding, schema_linking, value_links, join_path_plan, brief)
-execution_gate = semantic_query.execution_gate()
-sql_plan = SQLPlanner().build(semantic_query=semantic_query.model_dump(), value_links=value_links)
-if execution_gate["allowed"]:
-    result = await executor.execute(SQLGenerator().generate(sql_plan.model_dump()).sql)
+intent = parse_intent(question, catalog.tables)
+schema_context = render_schema_context(catalog, intent.relevant_tables)
+sql = generate_sql(question, intent.description, schema_context, previous_sql, validation_error)
+validator.validate_read_only(sql)
+explain_result = await executor.explain(sql)  # MySQL only
+result = await executor.execute(sql)
 ```

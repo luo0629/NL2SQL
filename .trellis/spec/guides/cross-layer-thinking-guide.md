@@ -82,7 +82,7 @@ After implementation:
 - [ ] Tested with edge cases (null, empty, invalid)
 - [ ] Verified error handling at each boundary
 - [ ] Checked data survives round-trip
-- [ ] For NL2SQL response changes, distinguished executed empty results from skipped execution (`execution_gate.allowed=false`)
+- [ ] For NL2SQL response changes, distinguished validation failure, execution failure, empty result, and successful result states
 - [ ] For backend business failures returned as HTTP 200 JSON, verified frontend handling of `status="error"`
 
 ---

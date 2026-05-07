@@ -2,63 +2,38 @@ from typing import Any, Literal, TypedDict
 
 
 class AgentState(TypedDict, total=False):
-    # 用户输入问题
+    # 用户原始输入，question 保持 API/测试兼容，user_input 是新链路主字段。
     question: str
-    # Query Understanding 阶段输出
-    query_understanding: dict[str, Any]
-    # RAG 或规则检索出的 schema 摘要
-    schema_context: list[str]
-    # RAG 返回的结构化 schema plan
-    query_schema_plan: dict[str, Any]
-    # 结构化 schema linking 结果
-    schema_linking: dict[str, Any]
-    # Value Linking 阶段输出
-    value_links: list[dict[str, Any]]
-    # 连表规划结果
-    join_path_plan: dict[str, Any]
-    # 业务语义说明
-    business_semantic_brief: dict[str, Any]
-    # 主语义中间表示，承载 intent / entities / metrics / filters / confidence 等信息
-    semantic_query: dict[str, Any]
-    # 执行门控结果，高置信度才自动查库
-    execution_gate: dict[str, Any]
-    # 执行错误修复/重试上下文
-    execution_error: dict[str, Any]
-    # schema linking 阶段摘要
-    linking_summary: str
-    # join planning 阶段摘要
-    join_planning_summary: str
-    # 结构化 SQL Plan
-    sql_plan: dict[str, Any]
-    # 最终（或中间）SQL
+    user_input: str
+    # intent_parser 输出：自然语言意图 + 真实 schema 中筛选出的相关表。
+    intent: str
+    relevant_tables: list[str]
+    available_tables: list[str]
+    # schema_retriever 输出：仅包含相关表的真实 schema 上下文。
+    schema_context: str
+    # sql_generator 输出。
+    generated_sql: str
     sql: str
-    # 参数化 SQL 的参数列表
     sql_params: list[Any]
-    # 面向前端展示的解释文本
-    explanation: str
-    # ready=真实模型路径，mock=回退路径, error=执行失败
-    status: Literal["mock", "ready", "error"]
-    # 是否使用了 fallback SQL
-    used_fallback: bool
-    # 安全校验错误列表
+    # sql_validator 输出与重试控制。
+    validation_error: str
     validation_errors: list[str]
-    # 结构化校验问题
     validation_issues: list[dict[str, Any]]
-    # SQL Plan 修复尝试次数
-    repair_attempts: int
-    # 开发调试追踪信息
-    debug_trace: dict[str, Any]
-    # 执行结果摘要
-    execution_summary: str
-    # 查询结果行数据
-    rows: list[dict[str, Any]]
-    # 结果列名
-    columns: list[str]
-    # 结果总行数
-    row_count: int
-    # 结果是否被截断
-    truncated: bool
-    # 执行耗时（毫秒）
-    execution_time_ms: float
-    # 验证重试次数
     retry_count: int
+    max_retries: int
+    # sql_executor 输出。
+    query_result: list[dict[str, Any]]
+    rows: list[dict[str, Any]]
+    columns: list[str]
+    row_count: int
+    truncated: bool
+    execution_summary: str
+    execution_time_ms: float
+    execution_error: dict[str, Any]
+    # result_formatter 输出。
+    final_answer: str
+    explanation: str
+    status: Literal["mock", "ready", "error"]
+    used_fallback: bool
+    # 开发调试追踪信息。
+    debug_trace: dict[str, Any]

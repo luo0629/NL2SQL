@@ -18,14 +18,16 @@ The graph does more than generate or reject SQL.
 
 Real flow in `app/agent/graph.py`:
 
-- `generate_sql` feeds `validate_sql`
-- `_should_retry_or_fallback(...)` decides between:
-  - retry through `sql_repairing`
-  - continue to `execute_sql`
-  - short-circuit to `finalize_response`
-- `sql_repairing` loops back into `generate_sql`
+- `intent_parser` feeds `schema_retriever`
+- `schema_retriever` feeds `sql_generator`
+- `sql_generator` feeds `sql_validator`
+- `_should_retry_or_execute(...)` decides between:
+  - retry through `sql_generator` when `validation_error` exists and `retry_count < max_retries`
+  - continue to `sql_executor` when validation passed
+  - short-circuit to `result_formatter` when retries are exhausted
+- `sql_executor` always feeds `result_formatter`
 
-This means validation failures may be recoverable and should not automatically be modeled as terminal HTTP failures.
+This means validation failures are recoverable during generation, but execution failures are formatted as controlled responses rather than retried indefinitely.
 
 ---
 
@@ -76,61 +78,63 @@ Do not write spec or code that assumes Zhipu is the only real-model path.
 
 ---
 
-## Scenario: NL2SQL execution gate and repair failure
+## Scenario: NL2SQL validation retry and controlled execution failure
 
 ### 1. Scope / Trigger
 
-- Trigger: a generated SQL statement may be skipped, executed, repaired, or failed inside the agent graph.
-- Applies to: `validate_sql`, `sql_repairing`, `execute_sql`, graph routing, and `NLQueryResponse` mapping.
+- Trigger: generated SQL may fail read-only validation or MySQL `EXPLAIN` before execution.
+- Applies to: `sql_validator`, graph routing, `sql_generator` retry context, `sql_executor`, `result_formatter`, and `NLQueryResponse` mapping.
 
 ### 2. Signatures
 
 - Response status remains `Literal["mock", "ready", "error"]` unless `app/schemas/query.py` and frontend handling are changed together.
-- Debug gate shape: `debug.execution_gate.allowed: bool`, `debug.execution_gate.reasons: list[str]`.
-- Execution error state: `AgentState.execution_error: dict[str, object]` for controlled retry/failure decisions.
+- Retry state fields: `AgentState.validation_error: str`, `AgentState.previous_sql: str`, `AgentState.retry_count: int`, `AgentState.max_retries: int`.
+- Execution error state: `AgentState.execution_error: dict[str, object]` for controlled result formatting.
+- Final answer field: `AgentState.final_answer: str`, mirrored through `explanation` for the existing API.
 
 ### 3. Contracts
 
-- Low-confidence SQL is not an HTTP exception and not necessarily `status="error"`; it is a controlled non-execution response with an explanation.
-- Runtime SQL failure should be converted to `status="error"` with sanitized `execution_summary` and optional repair attempt metadata.
-- If repair cannot safely produce a new plan, the graph must route to `finalize_response` instead of generating and executing again.
+- Validation failure is not an HTTP exception; it is fed back into `sql_generator` with `previous_sql` and `validation_error` until retry budget is exhausted.
+- `retry_count` must be incremented only on validation failure, not on successful validation or execution failure.
+- SQL that fails validation must never reach `sql_executor`.
+- Execution failure is not retried in the graph; it is converted by `result_formatter` into a friendly `status="error"` response.
 - Never expose raw stack traces, connection URLs, credentials, hostnames, or full driver exception text to clients.
 
 ### 4. Validation & Error Matrix
 
-- `execution_gate.allowed=false` -> skip executor, return explanation/clarification.
-- `DangerousSQLError` -> validation issue, repair only if marked repairable.
+- `DangerousSQLError` -> set `validation_error`, retry SQL generation while `retry_count < max_retries`.
+- MySQL `EXPLAIN` error -> set sanitized `validation_error`, retry SQL generation while `retry_count < max_retries`.
+- Retry budget exhausted -> route to `result_formatter` with `status="error"` and friendly explanation.
 - SQL timeout -> `status="error"`, summary says timeout.
-- SQLAlchemy error -> `status="error"`, summary includes error class only.
-- Repair node returns terminal error -> route directly to `finalize_response`.
+- SQLAlchemy execution error -> `status="error"`, summary includes error class only.
 
 ### 5. Good/Base/Bad Cases
 
-- Good: failed execution is attempted once for controlled repair, then either succeeds or returns sanitized failure.
-- Base: model unavailable and deterministic repair cannot fix the failure, so the response fails cleanly without re-querying.
-- Bad: graph loops from terminal repair failure back into `generate_sql`, causing repeated database calls.
+- Good: first SQL fails `EXPLAIN`, second SQL uses `validation_error` to repair, validates, then executes once.
+- Base: SQL remains invalid for 3 attempts, so no execution occurs and the user receives a clear failure message.
+- Bad: invalid SQL reaches `sql_executor`, or validation failures create an infinite graph loop.
 
 ### 6. Tests Required
 
-- Graph: execution failure with no safe repair calls the executor only once.
-- Graph: sanitized error summary does not contain `database_url` or raw connection details.
+- Graph: validation failure retries generation and passes `previous_sql` + `validation_error` into the next generation attempt.
+- Graph: exhausted retry budget routes to `result_formatter` without executor calls.
+- Graph: execution failure is sanitized and does not cause repeated database execution.
 - Integration: `status="error"` still returns JSON body matching `NLQueryResponse`.
-- Frontend/build: `status="error"` is displayed as failure even when HTTP status is 200.
 
 ### 7. Wrong vs Correct
 
 #### Wrong
 
 ```python
-graph_builder.add_edge("sql_repairing", "generate_sql")
+graph_builder.add_edge("sql_validator", "sql_executor")
 ```
 
 #### Correct
 
 ```python
 graph_builder.add_conditional_edges(
-    "sql_repairing",
-    _after_sql_repairing,
-    {"generate_sql": "generate_sql", "finalize_response": "finalize_response"},
+    "sql_validator",
+    _should_retry_or_execute,
+    {"sql_generator": "sql_generator", "sql_executor": "sql_executor", "result_formatter": "result_formatter"},
 )
 ```

@@ -26,6 +26,33 @@ class SQLExecutor:
         self.validator = validator or SQLValidator()
         self.result_limit = get_settings().query_result_limit
 
+    def _build_sql_params(self, params: list[object] | None = None) -> dict[str, object]:
+        return {
+            f"p{index}": value
+            for index, value in enumerate(params or [])
+        }
+
+    async def explain(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> None:
+        """Run MySQL EXPLAIN as a lightweight syntax/table/column precheck."""
+        self.validator.validate_read_only(sql)
+        sql_params = self._build_sql_params(params)
+        execution = self._run_explain(sql, sql_params)
+        if timeout_seconds is not None:
+            import asyncio
+
+            await asyncio.wait_for(execution, timeout=timeout_seconds)
+        else:
+            await execution
+
+    async def _run_explain(self, sql: str, sql_params: dict[str, object]) -> None:
+        async with self.engine.connect() as connection:
+            await connection.execute(text(f"EXPLAIN {sql}"), sql_params)
+
     async def execute(
         self,
         sql: str,
@@ -35,10 +62,7 @@ class SQLExecutor:
     ) -> SQLExecutionResult:
         self.validator.validate_read_only(sql)
 
-        sql_params = {
-            f"p{index}": value
-            for index, value in enumerate(params or [])
-        }
+        sql_params = self._build_sql_params(params)
         previous_limit = self.result_limit
         if max_rows is not None:
             self.result_limit = max_rows

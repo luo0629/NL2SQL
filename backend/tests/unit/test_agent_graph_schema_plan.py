@@ -1,9 +1,9 @@
 import pytest
 
 from app.agent.graph import reset_agent_graph, run_agent
-from app.agent.nodes import query_understanding
+from app.agent.nodes import intent_parser, schema_retriever
 from app.database.executor import SQLExecutor
-from app.rag.schema_models import SchemaCatalog, SchemaColumn, SchemaTable
+from app.rag.schema_models import SchemaCatalog, SchemaColumn, SchemaRelation, SchemaTable
 from app.schemas.sql import SQLExecutionResult
 from app.services.llm_service import LLMService
 from app.services.rag_service import RagService
@@ -11,9 +11,7 @@ from app.validator.sql_validator import SQLValidator
 
 
 class StubRagService(RagService):
-    async def build_query_schema_plan(self, question: str, query_understanding: dict[str, object] | None = None, refresh_schema: bool = False):
-        plan = await super().build_query_schema_plan(question)
-        return plan
+    pass
 
 
 class StubLLMService(LLMService):
@@ -27,9 +25,11 @@ class FakeStructuredModel:
             def __init__(self, content: str):
                 self.content = content
 
-        if "query-understanding planner" in prompt:
-            return Response('{"intent":"aggregate","target_mentions":["菜品"],"condition_mentions":[{"mention":"状态"}],"value_mentions":["起售"],"order_by":[{"table":"dish","column":"name","direction":"DESC"}],"limit":3,"requires_join_hint":false}')
-        return Response('{"from_table":"dish","select":[{"table":"dish","column":"name"}],"order_by":[{"table":"dish","column":"name","direction":"DESC"}],"limit":3}')
+        if "intent_parser" in prompt:
+            return Response('{"intent":"查询起售菜品前三名","relevant_tables":["dish","missing_table"]}')
+        if "只输出一条 SQL" in prompt:
+            return Response("SELECT `id`, `name` FROM `dish` ORDER BY `id` DESC LIMIT 3;")
+        return Response("查询执行成功，返回了菜品结果。")
 
 
 class FakeLLMService(LLMService):
@@ -55,6 +55,14 @@ class StubSQLExecutor(SQLExecutor):
 
 
 class ExplodingSQLExecutor(SQLExecutor):
+    async def explain(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> None:
+        return None
+
     async def execute(
         self,
         sql: str,
@@ -62,7 +70,7 @@ class ExplodingSQLExecutor(SQLExecutor):
         max_rows: int | None = None,
         timeout_seconds: float | None = None,
     ) -> SQLExecutionResult:
-        raise RuntimeError("connection string should not leak")
+        raise RuntimeError("database_url=mysql://secret should not leak")
 
 
 class CountingExplodingSQLExecutor(SQLExecutor):
@@ -70,6 +78,14 @@ class CountingExplodingSQLExecutor(SQLExecutor):
 
     def __init__(self) -> None:
         self.calls = 0
+
+    async def explain(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> None:
+        return None
 
     async def execute(
         self,
@@ -80,60 +96,6 @@ class CountingExplodingSQLExecutor(SQLExecutor):
     ) -> SQLExecutionResult:
         self.calls += 1
         raise RuntimeError("database_url=mysql://secret should not leak")
-
-
-class WeakPlanRagService(RagService):
-    async def build_query_schema_plan(self, question: str, query_understanding: dict[str, object] | None = None, refresh_schema: bool = False):
-        plan = await super().build_query_schema_plan(question)
-        plan.join_path_plan.plan_confidence = "none"
-        plan.join_path_plan.unresolved_tables = ["category"]
-        plan.join_path_plan.planning_summary = "主表: user。未解决表: category。规划置信度: none。"
-        plan.business_semantic_brief.uncertainties.append("无法可靠连表: category")
-        return plan
-
-
-@pytest.mark.anyio
-async def test_agent_graph_populates_schema_plan_stages() -> None:
-    reset_agent_graph()
-
-    state = await run_agent(
-        question="查询客户下单状态和用户信息",
-        rag_service=StubRagService(),
-        llm_service=StubLLMService(),
-        validator=SQLValidator(),
-        executor=StubSQLExecutor(),
-    )
-
-    assert state["query_understanding"]
-    assert state["query_schema_plan"]
-    assert state["schema_linking"]
-    assert "value_links" in state
-    assert state["join_path_plan"]
-    assert state["business_semantic_brief"]
-    assert state["sql_plan"]
-    assert state["linking_summary"]
-    assert state["join_planning_summary"]
-    assert state["schema_context"]
-    assert "Schema linking：" in state["explanation"]
-    assert "Join planning：" in state["explanation"]
-
-
-@pytest.mark.anyio
-async def test_agent_graph_keeps_uncertain_join_plan_visible_in_state() -> None:
-    reset_agent_graph()
-
-    state = await run_agent(
-        question="查询客户分类和用户信息",
-        rag_service=WeakPlanRagService(),
-        llm_service=StubLLMService(),
-        validator=SQLValidator(),
-        executor=StubSQLExecutor(),
-    )
-
-    assert state["join_path_plan"]["plan_confidence"] == "none"
-    assert state["join_path_plan"]["unresolved_tables"] == ["category"]
-    assert "未解决表" in state["join_planning_summary"]
-    assert "Join planning：" in state["explanation"]
 
 
 def _make_dish_catalog() -> SchemaCatalog:
@@ -147,7 +109,7 @@ def _make_dish_catalog() -> SchemaCatalog:
                 business_terms=["菜"],
                 columns=[
                     SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
-                    SchemaColumn(name="name", data_type="VARCHAR", nullable=True, business_terms=["菜品名称"], semantic_role="dimension"),
+                    SchemaColumn(name="name", data_type="VARCHAR", nullable=True, default="", business_terms=["菜品名称"], semantic_role="dimension"),
                     SchemaColumn(name="price", data_type="DECIMAL", nullable=False, business_terms=["价格", "售价", "销售额"], semantic_role="metric"),
                     SchemaColumn(name="created_at", data_type="TIMESTAMP", nullable=True, semantic_role="timestamp"),
                 ],
@@ -164,37 +126,61 @@ def _make_dish_catalog() -> SchemaCatalog:
                 ],
             ),
         ],
+        relations=[
+            SchemaRelation(
+                from_table="flavor",
+                from_column="dish_id",
+                to_table="dish",
+                to_column="id",
+                relation_type="many-to-one",
+            )
+        ],
     )
 
 
-def test_query_understanding_extracts_stable_intent_fields() -> None:
+def test_intent_parser_filters_hallucinated_tables() -> None:
+    state = intent_parser({"question": "查询起售菜品前三名"}, FakeLLMService(), _make_dish_catalog())
+
+    assert state["intent"] == "查询起售菜品前三名"
+    assert state["relevant_tables"] == ["dish"]
+    assert "missing_table" not in state["relevant_tables"]
+
+
+def test_schema_retriever_uses_only_relevant_tables() -> None:
     catalog = _make_dish_catalog()
-    state = query_understanding({"question": "查询最近一个月销售额最高的前5个菜品和口味"}, StubLLMService(), catalog)
+    state = schema_retriever({"intent": "查询菜品", "relevant_tables": ["dish"]}, catalog)
 
-    understanding = state["query_understanding"]
-
-    assert understanding["intent"] == "aggregate"
-    assert "菜品" in understanding["target_mentions"]
-    assert "口味" in understanding["target_mentions"]
-    assert understanding["limit"] == 5
-    assert understanding["order_by"] == [{"direction": "DESC"}]
-    assert understanding["time_range"] == {"type": "relative"}
-    assert understanding["requires_join_hint"] is True
-
-
-def test_query_understanding_uses_llm_when_available() -> None:
-    state = query_understanding({"question": "查询起售菜品前三名"}, FakeLLMService())
-
-    understanding = state["query_understanding"]
-
-    assert understanding["source"] == "llm"
-    assert understanding["limit"] == 3
-    assert understanding["value_mentions"] == ["起售"]
-    assert understanding["order_by"] == [{"table": "dish", "column": "name", "direction": "DESC"}]
+    assert "Table `dish`" in state["schema_context"]
+    assert "Table `flavor`" not in state["schema_context"]
+    assert "`flavor`.`dish_id`" not in state["schema_context"]
+    assert "`name`" in state["schema_context"]
+    assert "default=" in state["schema_context"]
 
 
 @pytest.mark.anyio
-async def test_agent_graph_prefers_llm_sql_plan_when_available() -> None:
+async def test_agent_graph_runs_six_node_pipeline_and_returns_rows() -> None:
+    reset_agent_graph()
+
+    state = await run_agent(
+        question="查询客户下单状态和用户信息",
+        rag_service=StubRagService(),
+        llm_service=StubLLMService(),
+        validator=SQLValidator(),
+        executor=StubSQLExecutor(),
+    )
+
+    assert state["intent"]
+    assert state["relevant_tables"]
+    assert state["schema_context"]
+    assert state["sql"].upper().startswith("SELECT")
+    assert state["validation_error"] == ""
+    assert state["rows"] == [{"id": 1, "name": "Alice"}]
+    assert state["final_answer"]
+    assert state["debug_trace"]["sql_plan"]["mode"] == "direct_sql_generation"
+
+
+@pytest.mark.anyio
+async def test_agent_graph_uses_llm_for_intent_and_sql_when_available() -> None:
     reset_agent_graph()
 
     state = await run_agent(
@@ -205,28 +191,9 @@ async def test_agent_graph_prefers_llm_sql_plan_when_available() -> None:
         executor=StubSQLExecutor(),
     )
 
-    assert state["query_understanding"]["source"] == "llm"
-    assert state["sql_plan"]["from_table"] == "dish"
-    assert state["sql_plan"]["limit"] == 3
-    assert state["sql_plan"]["provenance"]["from_table"] == "schema_linking"
-
-
-@pytest.mark.anyio
-async def test_agent_graph_gates_low_confidence_without_execution() -> None:
-    reset_agent_graph()
-
-    state = await run_agent(
-        question="查询客户分类和用户信息",
-        rag_service=WeakPlanRagService(),
-        llm_service=StubLLMService(),
-        validator=SQLValidator(),
-        executor=ExplodingSQLExecutor(),
-    )
-
-    assert state["execution_gate"]["allowed"] is False
-    assert state["rows"] == []
-    assert state["row_count"] == 0
-    assert "SQL" in state["explanation"]
+    assert state["debug_trace"]["intent_parser"]["source"] == "llm"
+    assert "ORDER BY" in state["sql"]
+    assert state["status"] == "ready"
 
 
 @pytest.mark.anyio
@@ -236,18 +203,18 @@ async def test_agent_graph_sanitizes_execution_failures() -> None:
     state = await run_agent(
         question="查询起售菜品前三名",
         rag_service=StubRagService(),
-        llm_service=FakeLLMService(),
+        llm_service=StubLLMService(),
         validator=SQLValidator(),
         executor=ExplodingSQLExecutor(),
     )
 
     assert state["status"] == "error"
     assert "RuntimeError" in state["execution_summary"]
-    assert "connection string should not leak" not in state["execution_summary"]
+    assert "database_url" not in state["execution_summary"]
 
 
 @pytest.mark.anyio
-async def test_agent_graph_stops_after_controlled_execution_failure_without_model() -> None:
+async def test_agent_graph_does_not_retry_execution_failure_without_model() -> None:
     reset_agent_graph()
     executor = CountingExplodingSQLExecutor()
 
