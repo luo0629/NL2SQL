@@ -7,31 +7,22 @@ class LLMService:
         # 统一从配置读取当前模型后端信息。
         settings = get_settings()
 
-        api_key = None
-        base_url = None
-
-        if settings.llm_provider == "zhipu":
-            api_key = settings.zhipu_api_key
-            base_url = settings.zhipu_base_url
-        elif settings.llm_provider == "xiaomi":
-            api_key = settings.xiaomi_api_key
-            base_url = settings.xiaomi_base_url
-        else:
+        # 非 zhipu 提供方直接视为“模型不可用”，交给上游走 fallback。
+        if settings.llm_provider != "zhipu":
             return None
 
         # 未配置密钥时不初始化模型，避免运行时硬错误。
-        if not api_key:
+        if not settings.zhipu_api_key:
             return None
 
-        # 通过 OpenAI 兼容接口访问模型服务。
+        # 通过 OpenAI 兼容接口访问 Zhipu。
         # temperature=0 保证相同输入产生相同输出，提高 SQL 生成一致性。
         return ChatOpenAI(
-            api_key=api_key,
-            base_url=base_url,
+            api_key=settings.zhipu_api_key,
+            base_url=settings.zhipu_base_url,
             model=settings.llm_model,
             temperature=settings.llm_temperature,
             request_timeout=settings.llm_request_timeout_seconds,
-            max_retries=1,
         )
 
     def describe_backend_model(self) -> str:
@@ -44,7 +35,5 @@ class LLMService:
 
         if settings.llm_provider == "zhipu":
             details.append(f"base_url={settings.zhipu_base_url}")
-        elif settings.llm_provider == "xiaomi":
-            details.append(f"base_url={settings.xiaomi_base_url}")
 
         return ", ".join(details)

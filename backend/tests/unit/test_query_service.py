@@ -17,19 +17,12 @@ class StubLLMService(LLMService):
 
 class StubSQLExecutor(SQLExecutor):
     @override
-    async def execute(
-        self,
-        sql: str,
-        params: list[object] | None = None,
-        max_rows: int | None = None,
-        timeout_seconds: float | None = None,
-    ) -> SQLExecutionResult:
-        rows = [{"sql": sql, "params": list(params or [])}]
+    async def execute(self, sql: str) -> SQLExecutionResult:
         return SQLExecutionResult(
-            rows=rows,
-            row_count=len(rows),
-            columns=["sql", "params"],
-            execution_summary=f"查询执行成功，共返回 {len(rows)} 行。",
+            rows=[{"id": 1, "name": "Alice"}],
+            row_count=1,
+            columns=["id", "name"],
+            execution_summary="查询执行成功，共返回 1 行。",
         )
 
 
@@ -44,20 +37,11 @@ async def test_agent_service_returns_mock_response() -> None:
         NLQueryRequest(question="近 30 天收入最高的客户是谁？")
     )
 
-    assert response.status == "ready"
+    assert response.status == "mock"
     assert "SELECT" in response.sql
     assert "DROP" not in response.sql
     assert response.explanation
-    assert response.rows == [{"sql": response.sql, "params": response.params}]
+    assert response.rows == [{"id": 1, "name": "Alice"}]
     assert response.row_count == 1
-    assert response.columns == ["sql", "params"]
+    assert response.columns == ["id", "name"]
     assert response.execution_summary == "查询执行成功，共返回 1 行。"
-    assert response.debug is not None
-    assert "query_understanding" in response.debug
-    assert "schema_links" in response.debug
-    assert "join_paths" in response.debug
-    assert "candidate_plans" in response.debug
-    assert "confidence_judge" in response.debug
-    assert "rerank" in response.debug
-    assert "sql_plan" in response.debug
-    assert response.debug["fallback"] == {"used": False}

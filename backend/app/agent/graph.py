@@ -5,23 +5,14 @@ from typing import cast
 from langgraph.graph import END, START, StateGraph
 
 from app.agent.nodes import (
-    build_candidate_tables,
-    build_semantic_brief,
     execute_sql,
     finalize_response,
     generate_sql,
-    join_path_planning,
-    query_understanding,
     retrieve_schema,
-    schema_linking,
-    sql_planning,
-    sql_repairing,
     validate_sql,
-    value_linking,
 )
 from app.agent.state import AgentState
 from app.database.executor import SQLExecutor
-from app.rag.schema_models import SchemaCatalog
 from app.services.llm_service import LLMService
 from app.services.rag_service import RagService
 from app.validator.sql_validator import SQLValidator
@@ -39,16 +30,17 @@ def reset_agent_graph() -> None:
 
 
 def _should_retry_or_fallback(state: object) -> str:
-    """条件路由：验证失败时决定修复、结束或执行。"""
+    """条件路由：验证失败时决定重试还是回退到 finalize。"""
     s = cast(AgentState, state)
     retry_count = s.get("retry_count", 0)
     validation_errors = s.get("validation_errors", [])
 
     if validation_errors and retry_count < 2:
-        return "sql_repairing"
-    if validation_errors:
-        return "finalize_response"
-    return "execute_sql"
+        # 有验证错误且未超过重试上限：回到 generate_sql 重新生成
+        return "generate_sql"
+    else:
+        # 无验证错误或已重试：继续到 execute_sql
+        return "execute_sql"
 
 
 def build_agent_graph(
@@ -56,43 +48,18 @@ def build_agent_graph(
     llm_service: LLMService,
     validator: SQLValidator,
     executor: SQLExecutor,
-    catalog: SchemaCatalog | None = None,
 ):
     graph_builder = StateGraph(AgentState)
 
     # LangGraph 节点默认接收 object，做类型收窄后转发给具体节点函数。
-    def query_understanding_node(state: object) -> AgentState:
-        return query_understanding(cast(AgentState, state), llm_service, catalog)
-
     async def retrieve_schema_node(state: object) -> AgentState:
         return await retrieve_schema(cast(AgentState, state), rag_service)
 
-    def schema_linking_node(state: object) -> AgentState:
-        return schema_linking(cast(AgentState, state))
-
-    def value_linking_node(state: object) -> AgentState:
-        return value_linking(cast(AgentState, state), catalog)
-
-    def build_candidate_tables_node(state: object) -> AgentState:
-        return build_candidate_tables(cast(AgentState, state))
-
-    def join_path_planning_node(state: object) -> AgentState:
-        return join_path_planning(cast(AgentState, state), catalog)
-
-    def build_semantic_brief_node(state: object) -> AgentState:
-        return build_semantic_brief(cast(AgentState, state))
-
-    def sql_planning_node(state: object) -> AgentState:
-        return sql_planning(cast(AgentState, state), llm_service, catalog)
-
     def generate_sql_node(state: object) -> AgentState:
-        return generate_sql(cast(AgentState, state), llm_service, catalog)
+        return generate_sql(cast(AgentState, state), llm_service)
 
     def validate_sql_node(state: object) -> AgentState:
         return validate_sql(cast(AgentState, state), validator)
-
-    def sql_repairing_node(state: object) -> AgentState:
-        return sql_repairing(cast(AgentState, state), llm_service)
 
     async def execute_sql_node(state: object) -> AgentState:
         return await execute_sql(cast(AgentState, state), executor)
@@ -100,42 +67,27 @@ def build_agent_graph(
     def finalize_response_node(state: object) -> AgentState:
         return finalize_response(cast(AgentState, state))
 
-    _ = graph_builder.add_node("query_understanding", query_understanding_node)
     _ = graph_builder.add_node("retrieve_schema", retrieve_schema_node)
-    _ = graph_builder.add_node("schema_linking", schema_linking_node)
-    _ = graph_builder.add_node("value_linking", value_linking_node)
-    _ = graph_builder.add_node("build_candidate_tables", build_candidate_tables_node)
-    _ = graph_builder.add_node("join_path_planning", join_path_planning_node)
-    _ = graph_builder.add_node("build_semantic_brief", build_semantic_brief_node)
-    _ = graph_builder.add_node("sql_planning", sql_planning_node)
     _ = graph_builder.add_node("generate_sql", generate_sql_node)
     _ = graph_builder.add_node("validate_sql", validate_sql_node)
-    _ = graph_builder.add_node("sql_repairing", sql_repairing_node)
     _ = graph_builder.add_node("execute_sql", execute_sql_node)
     _ = graph_builder.add_node("finalize_response", finalize_response_node)
 
-    _ = graph_builder.add_edge(START, "query_understanding")
-    _ = graph_builder.add_edge("query_understanding", "retrieve_schema")
-    _ = graph_builder.add_edge("retrieve_schema", "schema_linking")
-    _ = graph_builder.add_edge("schema_linking", "value_linking")
-    _ = graph_builder.add_edge("value_linking", "build_candidate_tables")
-    _ = graph_builder.add_edge("build_candidate_tables", "join_path_planning")
-    _ = graph_builder.add_edge("join_path_planning", "build_semantic_brief")
-    _ = graph_builder.add_edge("build_semantic_brief", "sql_planning")
-    _ = graph_builder.add_edge("sql_planning", "generate_sql")
+    # 线性链路 + 条件路由：验证失败时可回到 generate_sql 重试。
+    _ = graph_builder.add_edge(START, "retrieve_schema")
+    _ = graph_builder.add_edge("retrieve_schema", "generate_sql")
     _ = graph_builder.add_edge("generate_sql", "validate_sql")
 
+    # 条件路由：验证通过 → execute_sql，验证失败 → 重试或 finalize
     _ = graph_builder.add_conditional_edges(
         "validate_sql",
         _should_retry_or_fallback,
         {
-            "sql_repairing": "sql_repairing",
+            "generate_sql": "generate_sql",
             "execute_sql": "execute_sql",
-            "finalize_response": "finalize_response",
         },
     )
 
-    _ = graph_builder.add_edge("sql_repairing", "generate_sql")
     _ = graph_builder.add_edge("execute_sql", "finalize_response")
     _ = graph_builder.add_edge("finalize_response", END)
 
@@ -147,7 +99,6 @@ def get_agent_graph(
     llm_service: LLMService,
     validator: SQLValidator,
     executor: SQLExecutor,
-    catalog: SchemaCatalog | None = None,
 ):
     """获取单例 Graph，首次调用时编译，后续复用。executor 变更时重新编译。"""
     global _compiled_graph, _graph_executor_key
@@ -155,7 +106,7 @@ def get_agent_graph(
     executor_key = (id(rag_service), id(llm_service), id(validator), id(executor))
     if _compiled_graph is None or _graph_executor_key != executor_key:
         _compiled_graph = build_agent_graph(
-            rag_service, llm_service, validator, executor, catalog
+            rag_service, llm_service, validator, executor
         )
         _graph_executor_key = executor_key
     return _compiled_graph
@@ -168,9 +119,6 @@ async def run_agent(
     validator: SQLValidator,
     executor: SQLExecutor,
 ) -> AgentState:
-    from app.services.rag_service import _get_schema_catalog
-
-    catalog = await _get_schema_catalog()
-    graph = get_agent_graph(rag_service, llm_service, validator, executor, catalog)
+    graph = get_agent_graph(rag_service, llm_service, validator, executor)
     initial_state: AgentState = {"question": question}
     return cast(AgentState, await graph.ainvoke(initial_state))

@@ -1,14 +1,9 @@
-import logging
-
 from app.agent.graph import run_agent
 from app.database.executor import SQLExecutor
 from app.schemas.query import NLQueryRequest, NLQueryResponse
 from app.services.llm_service import LLMService
 from app.services.rag_service import RagService
 from app.validator.sql_validator import SQLValidator
-
-
-logger = logging.getLogger(__name__)
 
 
 class AgentService:
@@ -53,9 +48,8 @@ class AgentService:
         if status == "error":
             error_message = execution_summary
 
-        response = NLQueryResponse(
+        return NLQueryResponse(
             sql=sql,
-            params=state.get("sql_params", []),
             explanation=explanation,
             status=status,
             rows=state.get("rows", []),
@@ -64,13 +58,4 @@ class AgentService:
             execution_summary=execution_summary,
             error_message=error_message,
             execution_time_ms=state.get("execution_time_ms"),
-            debug=state.get("debug_trace"),
         )
-        logger.info(
-            "query_response_summary status=%s used_fallback=%s row_count=%s execution_time_ms=%s",
-            status,
-            state.get("used_fallback", False),
-            response.row_count,
-            response.execution_time_ms,
-        )
-        return response

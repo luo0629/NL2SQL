@@ -20,25 +20,13 @@ class StubLLMService(LLMService):
 
 class StubSQLExecutor(SQLExecutor):
     @override
-    async def execute(
-        self,
-        sql: str,
-        params: list[object] | None = None,
-        max_rows: int | None = None,
-        timeout_seconds: float | None = None,
-    ) -> SQLExecutionResult:
-        rows = [{"sql": sql, "params": list(params or [])}]
+    async def execute(self, sql: str) -> SQLExecutionResult:
         return SQLExecutionResult(
-            rows=rows,
-            row_count=len(rows),
-            columns=["sql", "params"],
-            execution_summary=f"查询执行成功，共返回 {len(rows)} 行。",
+            rows=[{"id": 1, "name": "mock-row"}],
+            row_count=1,
+            columns=["id", "name"],
+            execution_summary="查询执行成功，共返回 1 行。",
         )
-
-
-@pytest.fixture
-def schema_domains() -> list[str]:
-    return ["restaurant", "crm"]
 
 
 @pytest.fixture
