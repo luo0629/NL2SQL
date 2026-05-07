@@ -1,6 +1,12 @@
 import json
 
-from app.rag.business_semantics import attach_business_semantics, build_business_semantics, business_semantic_yaml_path
+from app.rag.business_semantics import (
+    attach_business_semantics,
+    build_business_semantics,
+    business_semantic_yaml_path,
+    conversational_enum_mapping,
+    conversational_enum_mapping_for_field,
+)
 from app.rag.schema_models import SchemaCatalog, SchemaColumn, SchemaTable
 
 
@@ -65,6 +71,14 @@ def test_business_semantics_derives_terms_metrics_dimensions_and_enums() -> None
     assert any(enum.table == "orders" and enum.column == "status" and enum.values.get("1") == "已支付" for enum in semantics.enums)
 
 
+def test_comment_derived_enum_mapping_is_prompt_safe_and_field_level() -> None:
+    semantics = build_business_semantics(_catalog())
+    enum = next(item for item in semantics.enums if item.table == "orders" and item.column == "status")
+
+    assert conversational_enum_mapping(enum) == "未支付=0, 已支付=1, 已取消=2"
+    assert conversational_enum_mapping_for_field(semantics, "orders", "status") == "未支付=0, 已支付=1, 已取消=2"
+
+
 def test_business_semantics_merges_valid_overrides_and_filters_invalid_refs(tmp_path) -> None:
     override_path = tmp_path / "business_semantics.yaml"
     override_path.write_text(
@@ -113,6 +127,75 @@ def test_business_semantics_merges_valid_overrides_and_filters_invalid_refs(tmp_
     assert any(diagnostic["code"] in {"SEMANTIC_OVERRIDE_INVALID_TABLE", "SEMANTIC_OVERRIDE_INVALID_COLUMN"} for diagnostic in semantics.diagnostics)
     assert any(diagnostic["code"] == "SEMANTIC_OVERRIDE_INVALID_FRAGMENT_REF" for diagnostic in semantics.diagnostics)
     assert any(diagnostic["code"] == "SEMANTIC_OVERRIDE_UNSAFE_FRAGMENT" for diagnostic in semantics.diagnostics)
+
+
+def test_enum_yaml_overrides_add_value_level_conversational_aliases(tmp_path) -> None:
+    override_path = tmp_path / "business_semantics.yaml"
+    override_path.write_text(
+        """
+enums:
+  payment_status:
+    table: orders
+    column: orders.status
+    values:
+      "0":
+        label: 待支付
+        aliases:
+          - 未支付
+          - 待付款
+      "1": 已支付
+    aliases:
+      "1":
+        - 已付款
+""".strip(),
+        encoding="utf-8",
+    )
+
+    semantics = build_business_semantics(_catalog(), str(override_path))
+
+    assert conversational_enum_mapping_for_field(semantics, "orders", "status") == "未支付/待支付/待付款=0, 已支付/已付款=1, 已取消=2"
+    assert any(term.term == "待付款" and term.columns == ["orders.status"] for term in semantics.terms)
+
+
+def test_invalid_enum_override_values_are_filtered_from_prompt_mappings(tmp_path) -> None:
+    override_path = tmp_path / "business_semantics.yaml"
+    override_path.write_text(
+        json.dumps(
+            {
+                "enums": {
+                    "bad_enum": {
+                        "table": "orders",
+                        "column": "orders.status",
+                        "values": {
+                            "1; DROP TABLE orders": "危险",
+                            "2": ["not", "scalar"],
+                            "3": {"label": "已退款", "aliases": ["退款; DELETE FROM orders", "退款"]},
+                            "4 OR 1=1": "绕过",
+                        },
+                    },
+                    "missing_column_enum": {
+                        "table": "orders",
+                        "column": "orders.missing",
+                        "values": {"1": "测试"},
+                    },
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    semantics = build_business_semantics(_catalog(), str(override_path))
+    mapping = conversational_enum_mapping_for_field(semantics, "orders", "status")
+
+    assert "DROP" not in mapping
+    assert "DELETE" not in mapping
+    assert "OR 1=1" not in mapping
+    assert "退款=3" in mapping
+    assert "not" not in mapping
+    assert any(diagnostic["code"] == "SEMANTIC_OVERRIDE_UNSAFE_ENUM_VALUE" for diagnostic in semantics.diagnostics)
+    assert any(diagnostic["code"] == "SEMANTIC_OVERRIDE_INVALID_ENUM_LABEL" for diagnostic in semantics.diagnostics)
+    assert any(diagnostic["code"] == "SEMANTIC_OVERRIDE_INVALID_COLUMN" for diagnostic in semantics.diagnostics)
 
 
 def test_business_semantics_loads_yaml_override_file(tmp_path) -> None:

@@ -4,7 +4,7 @@ import asyncio
 import time
 
 from app.config import get_settings
-from app.rag.business_semantics import attach_business_semantics
+from app.rag.business_semantics import attach_business_semantics, conversational_enum_mapping, conversational_enum_mapping_for_field
 from app.rag.schema_models import BusinessSemanticLayer, SchemaCatalog, SchemaTable
 from app.rag.schema_sync import sync_schema_metadata
 
@@ -106,7 +106,7 @@ def _matching_semantic_lines(table: SchemaTable, semantics: BusinessSemanticLaye
     matched_enums = [enum for enum in semantics.enums if enum.table == table.name][:6]
     if matched_enums:
         lines.append("enums: " + "; ".join(
-            f"{enum.name}={enum.table}.{enum.column} values={enum.values}"
+            f"{enum.name}={enum.table}.{enum.column} mapping={conversational_enum_mapping(enum)} values={enum.values}"
             for enum in matched_enums
         ))
     matched_filters = [item for item in semantics.default_filters if item.table == table.name][:6]
@@ -132,8 +132,14 @@ def _render_table_context(table: SchemaTable, catalog: SchemaCatalog, selected_t
             attrs.append("primary key")
         if column.default is not None:
             attrs.append(f"default: {column.default}")
+        enum_mapping = conversational_enum_mapping_for_field(catalog.business_semantics, table.name, column.name)
         if column.description:
-            attrs.append(f"description: {column.description}")
+            description = column.description
+            if enum_mapping:
+                description = f"{description}; enum_mapping: {enum_mapping}"
+            attrs.append(f"description: {description}")
+        elif enum_mapping:
+            attrs.append(f"description: enum_mapping: {enum_mapping}")
         if column.semantic_role:
             attrs.append(f"role: {column.semantic_role}")
         if column.business_terms:

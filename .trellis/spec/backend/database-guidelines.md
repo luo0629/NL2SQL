@@ -112,7 +112,9 @@ Real pattern from `_get_schema_catalog()`:
 ### 3. Contracts
 
 - Business semantics are derived from live `SchemaCatalog` metadata: table/column names, descriptions/comments, aliases, business terms, searchable terms, semantic roles, and enum-like comments.
-- Optional YAML overrides may add aliases, metrics, dimensions, enums, and default filters.
+- Optional YAML overrides may add aliases, metrics, dimensions, enums, value-level enum aliases, and default filters.
+- `BusinessEnum.value_aliases` stores prompt-safe conversational aliases grouped by real enum value and remains optional for compatibility with existing generated YAML.
+- Schema rendering must expose enum comparison mappings next to the relevant field description, for example `enum_mapping: 待支付/未支付=1, 已支付=2`, so `sql_generator` can see the natural-language phrase and DB value together.
 - When YAML is enabled, the system writes/refreshes `business_semantics_<safe-label>_<hash>.yaml` under the configured YAML directory; filenames are derived from `database_url` without exposing credentials.
 - YAML files contain refreshed `generated` sections from live schema and user-editable `overrides` sections. Refreshes should preserve `overrides` where practical.
 - Override references must be validated against the live catalog. Invalid table names, column names, or unsafe SQL fragments are filtered and recorded as diagnostics.
@@ -127,6 +129,7 @@ Real pattern from `_get_schema_catalog()`:
 - Override table not found -> filter that artifact and add diagnostic.
 - Override column not found -> filter that artifact and add diagnostic.
 - Override SQL fragment contains comments, semicolon, or dangerous keywords -> filter that artifact and add diagnostic.
+- Override enum value or alias is non-scalar or contains comments, semicolon, SQL operators, or dangerous keywords -> filter that enum entry or alias and add diagnostic.
 - Override SQL fragment references a table/column outside the declared real schema -> filter that artifact and add diagnostic.
 
 ### 5. Good/Base/Bad Cases
@@ -139,7 +142,8 @@ Real pattern from `_get_schema_catalog()`:
 
 - Unit: auto-derived semantics include terms from table/column names, comments, aliases, and business terms.
 - Unit: valid YAML overrides merge into catalog semantics.
-- Unit: invalid override references and dangerous SQL fragments are filtered into diagnostics.
+- Unit: comment-derived enum mappings and YAML value-level enum aliases render as field-adjacent prompt mappings.
+- Unit: invalid override references, unsafe enum values/aliases, and dangerous SQL fragments are filtered into diagnostics.
 - Unit: boolean YAML disabled does not create YAML files.
 - Unit: YAML enabled creates database-specific files under `yaml/` with no credentials or absolute paths in generated content.
 - Unit: valid YAML overrides merge into catalog semantics.

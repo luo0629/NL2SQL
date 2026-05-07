@@ -37,6 +37,7 @@ class BusinessEnum(BaseModel):
     column: str
     values: dict[str, str] = Field(default_factory=dict)
     aliases: list[str] = Field(default_factory=list)
+    value_aliases: dict[str, list[str]] = Field(default_factory=dict)
     source: Literal["schema", "override"] = "schema"
 
 

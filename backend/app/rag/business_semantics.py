@@ -32,6 +32,10 @@ _DANGEROUS_FRAGMENT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _ENUM_PAIR_PATTERN = re.compile(r"(?P<value>[-+]?\d+)\s*[:=：]?\s*(?P<label>[一-鿿A-Za-z_][一-鿿A-Za-z0-9_ -]{0,20})")
+_ENUM_SAFE_TEXT_PATTERN = re.compile(
+    r";|--|/\*|\*/|\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|exec|execute|sleep|benchmark|union|select|from|where|join|or|and)\b",
+    re.IGNORECASE,
+)
 _DEFAULT_YAML_SECTIONS = ("aliases", "metrics", "dimensions", "enums", "default_filters")
 _IDENTIFIER_LIKE_COLUMN_PATTERN = re.compile(r"(^id$|_id$|_code$|_no$|^code$)", re.IGNORECASE)
 _INTERNAL_AUDIT_COLUMNS = {
@@ -184,6 +188,90 @@ def _extract_enum_values(description: str | None) -> dict[str, str]:
     return values
 
 
+def _is_safe_enum_text(value: object, *, max_length: int = 80) -> bool:
+    text = _clean_text(value)
+    return bool(text) and len(text) <= max_length and not _ENUM_SAFE_TEXT_PATTERN.search(text)
+
+
+def _validate_enum_scalar(value: object, diagnostics: list[dict[str, str]], owner: str) -> str | None:
+    if not isinstance(value, str | int | float | bool):
+        diagnostics.append({"level": "warning", "code": "SEMANTIC_OVERRIDE_INVALID_ENUM_VALUE", "message": f"Ignored enum value for {owner}: value must be a scalar."})
+        return None
+    text = _clean_text(value)
+    if not _is_safe_enum_text(text, max_length=64):
+        diagnostics.append({"level": "warning", "code": "SEMANTIC_OVERRIDE_UNSAFE_ENUM_VALUE", "message": f"Ignored unsafe enum value for {owner}."})
+        return None
+    return text
+
+
+def _validate_enum_label(value: object, diagnostics: list[dict[str, str]], owner: str) -> str | None:
+    if not isinstance(value, str | int | float | bool):
+        diagnostics.append({"level": "warning", "code": "SEMANTIC_OVERRIDE_INVALID_ENUM_LABEL", "message": f"Ignored enum label for {owner}: label must be a scalar."})
+        return None
+    text = _clean_text(value)
+    if not _is_safe_enum_text(text):
+        diagnostics.append({"level": "warning", "code": "SEMANTIC_OVERRIDE_UNSAFE_ENUM_LABEL", "message": f"Ignored unsafe enum label for {owner}."})
+        return None
+    return text
+
+
+def _normalize_enum_override_values(raw_values: Any, raw_aliases: Any, diagnostics: list[dict[str, str]], owner: str) -> tuple[dict[str, str], dict[str, list[str]], list[str]]:
+    if not isinstance(raw_values, dict):
+        return {}, {}, []
+    enum_values: dict[str, str] = {}
+    value_aliases: dict[str, list[str]] = {}
+    global_aliases: list[str] = []
+    aliases_by_value = raw_aliases if isinstance(raw_aliases, dict) else {}
+    if not isinstance(raw_aliases, dict):
+        global_aliases = [alias for alias in (_validate_enum_label(item, diagnostics, owner) for item in _as_list(raw_aliases)) if alias]
+
+    for raw_key, raw_label in raw_values.items():
+        key = _validate_enum_scalar(raw_key, diagnostics, owner)
+        if key is None:
+            continue
+        aliases: list[str] = []
+        if isinstance(raw_label, dict):
+            label = _validate_enum_label(raw_label.get("label") or raw_label.get("name"), diagnostics, f"{owner} value {key}")
+            aliases.extend(
+                alias for alias in (_validate_enum_label(item, diagnostics, f"{owner} value {key}") for item in _as_list(raw_label.get("aliases"))) if alias
+            )
+        else:
+            label = _validate_enum_label(raw_label, diagnostics, f"{owner} value {key}")
+        aliases.extend(
+            alias for alias in (_validate_enum_label(item, diagnostics, f"{owner} value {key}") for item in _as_list(aliases_by_value.get(raw_key) or aliases_by_value.get(key))) if alias
+        )
+        if label is None:
+            continue
+        enum_values[key] = label
+        value_aliases[key] = _dedupe([label, *aliases])
+
+    if len(enum_values) == 1 and global_aliases:
+        only_key = next(iter(enum_values))
+        value_aliases[only_key] = _dedupe([*value_aliases.get(only_key, []), *global_aliases])
+    return enum_values, value_aliases, _dedupe(global_aliases)
+
+
+def conversational_enum_mapping(enum: BusinessEnum) -> str:
+    parts: list[str] = []
+    for db_value, label in enum.values.items():
+        labels = _dedupe([label, *enum.value_aliases.get(db_value, [])])
+        if labels:
+            parts.append(f"{'/'.join(labels)}={db_value}")
+    return ", ".join(parts)
+
+
+def conversational_enum_mapping_for_field(semantics: BusinessSemanticLayer | None, table: str, column: str) -> str:
+    if semantics is None:
+        return ""
+    grouped: dict[str, list[str]] = {}
+    for enum in semantics.enums:
+        if enum.table != table or enum.column != column:
+            continue
+        for db_value, label in enum.values.items():
+            grouped[db_value] = _dedupe([*grouped.get(db_value, []), label, *enum.value_aliases.get(db_value, [])])
+    return ", ".join(f"{'/'.join(labels)}={db_value}" for db_value, labels in grouped.items() if labels)
+
+
 def _table_maps(catalog: SchemaCatalog) -> tuple[dict[str, SchemaTable], dict[str, set[str]]]:
     table_by_name = {table.name: table for table in catalog.tables}
     columns_by_table = {table.name: {column.name for column in table.columns} for table in catalog.tables}
@@ -256,6 +344,7 @@ def derive_business_semantics(catalog: SchemaCatalog) -> BusinessSemanticLayer:
                         column=column.name,
                         values=enum_values,
                         aliases=enum_aliases,
+                        value_aliases={value: [label] for value, label in enum_values.items()},
                         source="schema",
                     )
                 )
@@ -499,10 +588,11 @@ def merge_business_semantic_overrides(catalog: SchemaCatalog, base: BusinessSema
             if first_table != table:
                 diagnostics.append({"level": "warning", "code": "SEMANTIC_OVERRIDE_TABLE_COLUMN_MISMATCH", "message": f"Ignored enum {name}: table does not match column reference."})
                 continue
-            enum_values = {str(key): str(value) for key, value in values.items()}
-            aliases = _dedupe([str(alias) for alias in _as_list(item.get("aliases"))])
-            enums.append(BusinessEnum(name=str(name), table=table, column=first_column, values=enum_values, aliases=aliases, source="override"))
-            for alias in [str(name), *aliases, *enum_values.values()]:
+            enum_values, value_aliases, aliases = _normalize_enum_override_values(values, item.get("aliases"), diagnostics, f"enum {name}")
+            if not enum_values:
+                continue
+            enums.append(BusinessEnum(name=str(name), table=table, column=first_column, values=enum_values, aliases=aliases, value_aliases=value_aliases, source="override"))
+            for alias in [str(name), *aliases, *enum_values.values(), *[item for value_items in value_aliases.values() for item in value_items]]:
                 _add_term(terms, alias, table=table, column=first_column, kind="enum", source="override")
 
     raw_filters = payload.get("default_filters") or {}

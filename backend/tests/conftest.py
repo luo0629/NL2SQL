@@ -1,9 +1,11 @@
 from collections.abc import Generator
+from pathlib import Path
 from typing import override
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.config import get_settings
 from app.database.executor import SQLExecutor
 from app.dependencies import get_agent_service
 from app.main import app
@@ -33,6 +35,14 @@ class StubSQLExecutor(SQLExecutor):
             columns=["id", "name"],
             execution_summary="查询执行成功，共返回 1 行。",
         )
+
+
+@pytest.fixture(autouse=True)
+def isolate_business_semantic_yaml_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Generator[None, None, None]:
+    monkeypatch.setenv("BUSINESS_SEMANTIC_YAML_DIR", str(tmp_path / "business_semantics_yaml"))
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture

@@ -10,6 +10,7 @@ from typing import Any, cast
 from app.agent.state import AgentState
 from app.config import get_settings
 from app.database.executor import SQLExecutor
+from app.rag.business_semantics import conversational_enum_mapping, conversational_enum_mapping_for_field
 from app.rag.schema_models import BusinessSemanticLayer, SchemaCatalog, SchemaTable
 from app.services.llm_service import LLMService
 from app.utils.exceptions import DangerousSQLError
@@ -372,12 +373,18 @@ def _render_semantic_context(semantics: BusinessSemanticLayer | None, selected_t
     enums = [
         enum
         for enum in semantics.enums
-        if enum.table in selected_table_names and _semantic_item_matches_question(enum.name, enum.aliases + list(enum.values.values()), question)
+        if enum.table in selected_table_names
+        and _semantic_item_matches_question(
+            enum.name,
+            enum.aliases + list(enum.values.values()) + [alias for aliases in enum.value_aliases.values() for alias in aliases],
+            question,
+        )
     ][:6]
     if enums:
         lines.append("Business enums:")
         for enum in enums:
-            lines.append(f"- {enum.name}: {enum.table}.{enum.column}; values={json.dumps(enum.values, ensure_ascii=False)}; source={enum.source}")
+            mapping = conversational_enum_mapping(enum)
+            lines.append(f"- {enum.name}: {enum.table}.{enum.column}; mapping={mapping}; values={json.dumps(enum.values, ensure_ascii=False)}; source={enum.source}")
     filters = [
         item
         for item in semantics.default_filters
@@ -588,8 +595,14 @@ def _format_table_schema(
         if column.semantic_role:
             attrs.append(f"role={column.semantic_role}")
         attrs.append(f"output={_column_output_hint(column)}")
+        enum_mapping = conversational_enum_mapping_for_field(_catalog_semantics(catalog), table.name, column.name)
         if column.description:
-            attrs.append(f"comment={column.description}")
+            comment = column.description
+            if enum_mapping:
+                comment = f"{comment}; enum_mapping: {enum_mapping}"
+            attrs.append(f"comment={comment}")
+        elif enum_mapping:
+            attrs.append(f"comment=enum_mapping: {enum_mapping}")
         if column.business_terms:
             attrs.append(f"terms={', '.join(column.business_terms)}")
         lines.append(f"- {_quote_identifier(column.name)} ({'; '.join(attrs)})")

@@ -163,6 +163,7 @@ def _make_dish_catalog() -> SchemaCatalog:
                     SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
                     SchemaColumn(name="name", data_type="VARCHAR", nullable=True, default="", business_terms=["菜品名称"], semantic_role="dimension"),
                     SchemaColumn(name="price", data_type="DECIMAL", nullable=False, business_terms=["价格", "售价", "销售额"], semantic_role="metric"),
+                    SchemaColumn(name="status", data_type="INTEGER", nullable=False, description="0 未上架 1 起售", business_terms=["菜品状态"], semantic_role="dimension"),
                     SchemaColumn(name="created_at", data_type="TIMESTAMP", nullable=True, semantic_role="timestamp"),
                 ],
             ),
@@ -209,6 +210,15 @@ def test_schema_retriever_uses_only_relevant_tables() -> None:
     assert "default=" in state["schema_context"]
 
 
+def test_schema_retriever_appends_conversational_enum_mapping_to_field_comment() -> None:
+    catalog = _make_dish_catalog()
+    state = schema_retriever({"question": "查询起售菜品", "relevant_tables": ["dish"]}, catalog)
+
+    assert "`status`" in state["schema_context"]
+    assert "comment=0 未上架 1 起售; enum_mapping: 未上架=0, 起售=1" in state["schema_context"]
+    assert "mapping=起售=1" in state["semantic_context"] or "mapping=未上架=0, 起售=1" in state["semantic_context"]
+
+
 def test_schema_retriever_includes_business_semantic_context_without_polluting_schema() -> None:
     catalog = _make_dish_catalog()
     state = schema_retriever({"question": "查询销售额最高的商品", "relevant_tables": ["dish"]}, catalog)
@@ -249,7 +259,7 @@ def test_fallback_sql_prefers_display_columns_over_bare_id() -> None:
     sql = build_fallback_sql("查询菜品", _make_dish_catalog(), ["dish"])
 
     select_clause = sql.split(" FROM ", 1)[0]
-    assert select_clause == "SELECT `name`, `price`"
+    assert select_clause == "SELECT `name`, `price`, `status`"
     assert "`id`" not in select_clause
     assert "ORDER BY `id` DESC" in sql
 
@@ -257,7 +267,7 @@ def test_fallback_sql_prefers_display_columns_over_bare_id() -> None:
 def test_fallback_sql_allows_identifier_when_user_explicitly_asks() -> None:
     sql = build_fallback_sql("查询菜品ID和名称", _make_dish_catalog(), ["dish"])
 
-    assert sql.startswith("SELECT `id`, `name`, `price`, `created_at` FROM `dish`")
+    assert sql.startswith("SELECT `id`, `name`, `price`, `status`, `created_at` FROM `dish`")
 
 
 @pytest.mark.anyio

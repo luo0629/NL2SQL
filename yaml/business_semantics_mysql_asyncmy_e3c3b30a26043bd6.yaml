@@ -777,6 +777,11 @@ generated:
       - is_default
       - 否
       - 是
+      value_aliases:
+        '0':
+        - 否
+        '1':
+        - 是
     category.type:
       name: category.type
       table: category
@@ -790,6 +795,11 @@ generated:
       - 菜品/套餐类型
       - 菜品分类
       - 套餐分类
+      value_aliases:
+        '1':
+        - 菜品分类
+        '2':
+        - 套餐分类
     category.status:
       name: category.status
       table: category
@@ -801,6 +811,11 @@ generated:
       - status
       - 禁用
       - 启用
+      value_aliases:
+        '0':
+        - 禁用
+        '1':
+        - 启用
     dish.status:
       name: dish.status
       table: dish
@@ -814,6 +829,11 @@ generated:
       - 上架状态
       - 停售
       - 起售
+      value_aliases:
+        '0':
+        - 停售
+        '1':
+        - 起售
     employee.status:
       name: employee.status
       table: employee
@@ -825,6 +845,11 @@ generated:
       - status
       - 禁用
       - 启用
+      value_aliases:
+        '0':
+        - 禁用
+        '1':
+        - 启用
     orders.status:
       name: orders.status
       table: orders
@@ -848,6 +873,21 @@ generated:
       - 已完成
       - 已取消
       - 退款
+      value_aliases:
+        '1':
+        - 待付款
+        '2':
+        - 待接单
+        '3':
+        - 已接单
+        '4':
+        - 派送中
+        '5':
+        - 已完成
+        '6':
+        - 已取消
+        '7':
+        - 退款
     orders.pay_method:
       name: orders.pay_method
       table: orders
@@ -859,6 +899,11 @@ generated:
       - pay_method
       - 微信
       - 支付宝
+      value_aliases:
+        '1':
+        - 微信
+        '2':
+        - 支付宝
     orders.pay_status:
       name: orders.pay_status
       table: orders
@@ -872,6 +917,13 @@ generated:
       - 未支付
       - 已支付
       - 退款
+      value_aliases:
+        '0':
+        - 未支付
+        '1':
+        - 已支付
+        '2':
+        - 退款
     orders.delivery_status:
       name: orders.delivery_status
       table: orders
@@ -883,6 +935,11 @@ generated:
       - delivery_status
       - 立即送出
       - 选择具体时间
+      value_aliases:
+        '1':
+        - 立即送出
+        '0':
+        - 选择具体时间
     orders.tableware_status:
       name: orders.tableware_status
       table: orders
@@ -894,6 +951,11 @@ generated:
       - tableware_status
       - 按餐量提供
       - 选择具体数量
+      value_aliases:
+        '1':
+        - 按餐量提供
+        '0':
+        - 选择具体数量
     setmeal.status:
       name: setmeal.status
       table: setmeal
@@ -907,6 +969,11 @@ generated:
       - 上架状态
       - 停售
       - 起售
+      value_aliases:
+        '0':
+        - 停售
+        '1':
+        - 起售
   default_filters: {}
 overrides:
   aliases: {}
