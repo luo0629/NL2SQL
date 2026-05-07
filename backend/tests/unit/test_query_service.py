@@ -1,3 +1,5 @@
+import asyncio
+from types import SimpleNamespace
 from typing import override
 
 import pytest
@@ -57,3 +59,38 @@ async def test_agent_service_returns_mock_response() -> None:
     assert "join_paths" in response.debug
     assert "sql_plan" in response.debug
     assert response.debug["fallback"] == {"used": False}
+
+
+@pytest.mark.anyio
+async def test_agent_service_timeout_returns_structured_error_without_fallback_sql(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def slow_run_agent(**_kwargs: object) -> dict[str, object]:
+        await asyncio.sleep(0.05)
+        return {}
+
+    monkeypatch.setattr("app.services.agent_service.run_agent", slow_run_agent)
+    monkeypatch.setattr(
+        "app.services.agent_service.get_settings",
+        lambda: SimpleNamespace(agent_request_timeout_seconds=0.001),
+    )
+
+    service = AgentService(
+        llm_service=StubLLMService(),
+        sql_executor=StubSQLExecutor(),
+    )
+
+    response = await service.generate_sql(NLQueryRequest(question="查询菜品"))
+
+    assert response.status == "error"
+    assert response.sql == ""
+    assert response.rows == []
+    assert response.columns == []
+    assert response.row_count == 0
+    assert response.error_message == "查询处理超时，已由后端主动停止。"
+    assert response.debug is not None
+    assert response.debug["agent_request"] == {
+        "status": "timeout",
+        "timeout_seconds": 0.001,
+        "duration_ms": response.debug["agent_request"]["duration_ms"],
+    }

@@ -22,7 +22,13 @@ class Settings(BaseSettings):
     query_result_limit: int = 200
     database_readonly_required: bool = True
     schema_cache_ttl_seconds: int = 300
+    schema_sync_timeout_seconds: float = 8.0
     llm_request_timeout_seconds: int = 45
+    agent_llm_node_timeout_seconds: float = 12.0
+    result_formatter_llm_timeout_seconds: float = 6.0
+    sql_explain_timeout_seconds: float = 8.0
+    query_execution_timeout_seconds: float = 25.0
+    agent_request_timeout_seconds: float = 55.0
     llm_temperature: float = 0.0
     # LLM 配置
     llm_provider: str = "mock"

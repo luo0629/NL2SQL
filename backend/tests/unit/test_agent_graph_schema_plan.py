@@ -1,7 +1,11 @@
+import asyncio
+from types import SimpleNamespace
+
 import pytest
 
+import app.agent.nodes as agent_nodes
 from app.agent.graph import reset_agent_graph, run_agent
-from app.agent.nodes import intent_parser, schema_retriever
+from app.agent.nodes import async_sql_generator, intent_parser, schema_retriever
 from app.database.executor import SQLExecutor
 from app.rag.schema_models import SchemaCatalog, SchemaColumn, SchemaRelation, SchemaTable
 from app.schemas.sql import SQLExecutionResult
@@ -96,6 +100,53 @@ class CountingExplodingSQLExecutor(SQLExecutor):
     ) -> SQLExecutionResult:
         self.calls += 1
         raise RuntimeError("database_url=mysql://secret should not leak")
+
+
+class TimeoutRecordingSQLExecutor(SQLExecutor):
+    def __init__(self) -> None:
+        self.explain_timeout_seconds: float | None = None
+        self.execute_timeout_seconds: float | None = None
+        self.max_rows: int | None = None
+
+    async def explain(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> None:
+        self.explain_timeout_seconds = timeout_seconds
+
+    async def execute(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        max_rows: int | None = None,
+        timeout_seconds: float | None = None,
+    ) -> SQLExecutionResult:
+        self.execute_timeout_seconds = timeout_seconds
+        self.max_rows = max_rows
+        return SQLExecutionResult(
+            rows=[{"id": 1}],
+            row_count=1,
+            columns=["id"],
+            truncated=False,
+            execution_summary="查询执行成功，共返回 1 行。",
+        )
+
+
+class SlowModel:
+    async def ainvoke(self, prompt: str):
+        await asyncio.sleep(0.05)
+
+        class Response:
+            content = "SELECT 1;"
+
+        return Response()
+
+
+class SlowLLMService(LLMService):
+    def build_chat_model(self):
+        return SlowModel()
 
 
 def _make_dish_catalog() -> SchemaCatalog:
@@ -229,3 +280,50 @@ async def test_agent_graph_does_not_retry_execution_failure_without_model() -> N
     assert state["status"] == "error"
     assert executor.calls == 1
     assert "database_url" not in state["execution_summary"]
+
+
+@pytest.mark.anyio
+async def test_sql_generator_times_out_slow_llm_and_uses_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        agent_nodes,
+        "get_settings",
+        lambda: SimpleNamespace(agent_llm_node_timeout_seconds=0.001),
+    )
+
+    state = await async_sql_generator(
+        {"question": "查询菜品", "relevant_tables": ["dish"]},
+        SlowLLMService(),
+        _make_dish_catalog(),
+    )
+
+    assert state["status"] == "mock"
+    assert state["used_fallback"] is True
+    assert state["debug_trace"]["sql_generator"]["llm_error"] == "timeout"
+
+
+@pytest.mark.anyio
+async def test_agent_graph_passes_timeout_to_executor(monkeypatch: pytest.MonkeyPatch) -> None:
+    reset_agent_graph()
+    executor = TimeoutRecordingSQLExecutor()
+    settings = SimpleNamespace(
+        schema_sync_timeout_seconds=8.0,
+        sql_explain_timeout_seconds=1.5,
+        query_execution_timeout_seconds=2.5,
+        query_result_limit=200,
+    )
+    monkeypatch.setattr("app.agent.graph.get_settings", lambda: settings)
+    monkeypatch.setattr(agent_nodes, "get_settings", lambda: settings)
+    monkeypatch.setattr(agent_nodes, "_should_run_mysql_explain", lambda: True)
+
+    state = await run_agent(
+        question="查询菜品",
+        rag_service=StubRagService(),
+        llm_service=StubLLMService(),
+        validator=SQLValidator(),
+        executor=executor,
+    )
+
+    assert state["status"] in {"mock", "ready"}
+    assert executor.explain_timeout_seconds == 1.5
+    assert executor.execute_timeout_seconds == 2.5
+    assert executor.max_rows is not None

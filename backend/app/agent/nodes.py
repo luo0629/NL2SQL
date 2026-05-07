@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import re
 import time
 from typing import Any, cast
@@ -12,6 +14,9 @@ from app.rag.schema_models import SchemaCatalog, SchemaTable
 from app.services.llm_service import LLMService
 from app.utils.exceptions import DangerousSQLError
 from app.validator.sql_validator import SQLValidator
+
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_text(content: str | list[str | dict[str, str]]) -> str:
@@ -61,6 +66,56 @@ def _invoke_model_json(model: Any, prompt: str) -> dict[str, Any] | None:
     if content is None:
         return None
     return _extract_json_object(content)
+
+
+async def _ainvoke_model_text(
+    model: Any,
+    prompt: str,
+    *,
+    timeout_seconds: float | None = None,
+    stage: str,
+) -> tuple[str | None, str | None]:
+    started_at = time.monotonic()
+    try:
+        if hasattr(model, "ainvoke"):
+            invocation = model.ainvoke(prompt)
+        else:
+            invocation = asyncio.to_thread(model.invoke, prompt)
+
+        if timeout_seconds is not None and timeout_seconds > 0:
+            response = await asyncio.wait_for(invocation, timeout=timeout_seconds)
+        else:
+            response = await invocation
+        elapsed_ms = (time.monotonic() - started_at) * 1000
+        logger.info("llm.%s.end duration_ms=%.2f", stage, elapsed_ms)
+        return _extract_text(cast(str | list[str | dict[str, str]], response.content)).strip(), None
+    except TimeoutError:
+        logger.warning("llm.%s.timeout timeout_seconds=%.2f", stage, timeout_seconds or 0)
+        return None, "timeout"
+    except Exception as error:
+        logger.warning("llm.%s.error error_class=%s", stage, error.__class__.__name__)
+        return None, error.__class__.__name__
+
+
+async def _ainvoke_model_json(
+    model: Any,
+    prompt: str,
+    *,
+    timeout_seconds: float | None = None,
+    stage: str,
+) -> tuple[dict[str, Any] | None, str | None]:
+    content, error = await _ainvoke_model_text(
+        model,
+        prompt,
+        timeout_seconds=timeout_seconds,
+        stage=stage,
+    )
+    if content is None:
+        return None, error
+    payload = _extract_json_object(content)
+    if payload is None:
+        return None, "invalid_json"
+    return payload, None
 
 
 def _quote_identifier(identifier: str) -> str:
@@ -130,21 +185,21 @@ def _build_intent_prompt(question: str, table_names: list[str], catalog: SchemaC
     )
 
 
-def intent_parser(state: AgentState, llm_service: LLMService, catalog: SchemaCatalog | None = None) -> AgentState:
+def _build_intent_result(
+    state: AgentState,
+    payload: dict[str, Any] | None,
+    catalog: SchemaCatalog | None,
+    *,
+    source: str,
+    llm_error: str | None = None,
+) -> AgentState:
     question = (state.get("user_input") or state.get("question") or "").strip()
     table_names = [table.name for table in _catalog_tables(catalog)]
     allowed = set(table_names)
     fallback_tables = _fallback_relevant_tables(question, catalog)
-    fallback_intent = f"查询需求：{question}" if question else "查询数据库信息"
-
-    model = llm_service.build_chat_model()
-    payload: dict[str, Any] | None = None
-    if model is not None:
-        payload = _invoke_model_json(model, _build_intent_prompt(question, table_names, catalog))
-
-    intent = fallback_intent
+    intent = f"查询需求：{question}" if question else "查询数据库信息"
     relevant_tables = fallback_tables
-    source = "deterministic"
+
     if payload is not None:
         candidate_intent = payload.get("intent")
         if isinstance(candidate_intent, str) and candidate_intent.strip():
@@ -154,13 +209,13 @@ def intent_parser(state: AgentState, llm_service: LLMService, catalog: SchemaCat
             filtered = [str(item).strip() for item in raw_tables if str(item).strip() in allowed]
             if filtered:
                 relevant_tables = list(dict.fromkeys(filtered))[:4]
-        source = "llm"
 
     debug_trace = dict(state.get("debug_trace", {}))
     debug_trace["intent_parser"] = {
         "source": source,
         "available_table_count": len(table_names),
         "relevant_tables": relevant_tables,
+        "llm_error": llm_error,
     }
     # 兼容旧 debug contract：query_understanding 现在指向简化意图结果。
     debug_trace["query_understanding"] = {
@@ -182,6 +237,37 @@ def intent_parser(state: AgentState, llm_service: LLMService, catalog: SchemaCat
         "query_understanding": query_understanding_payload,
         "debug_trace": debug_trace,
     }
+
+
+def intent_parser(state: AgentState, llm_service: LLMService, catalog: SchemaCatalog | None = None) -> AgentState:
+    question = (state.get("user_input") or state.get("question") or "").strip()
+    table_names = [table.name for table in _catalog_tables(catalog)]
+    model = llm_service.build_chat_model()
+    payload: dict[str, Any] | None = None
+    source = "deterministic"
+    if model is not None:
+        payload = _invoke_model_json(model, _build_intent_prompt(question, table_names, catalog))
+        source = "llm" if payload is not None else "deterministic"
+    return _build_intent_result(state, payload, catalog, source=source)
+
+
+async def async_intent_parser(state: AgentState, llm_service: LLMService, catalog: SchemaCatalog | None = None) -> AgentState:
+    question = (state.get("user_input") or state.get("question") or "").strip()
+    table_names = [table.name for table in _catalog_tables(catalog)]
+    model = llm_service.build_chat_model()
+    payload: dict[str, Any] | None = None
+    llm_error: str | None = None
+    source = "deterministic"
+    if model is not None:
+        settings = get_settings()
+        payload, llm_error = await _ainvoke_model_json(
+            model,
+            _build_intent_prompt(question, table_names, catalog),
+            timeout_seconds=settings.agent_llm_node_timeout_seconds,
+            stage="intent_parser",
+        )
+        source = "llm" if payload is not None else "deterministic"
+    return _build_intent_result(state, payload, catalog, source=source, llm_error=llm_error)
 
 
 def _format_table_schema(
@@ -316,15 +402,15 @@ def build_fallback_sql(question: str, catalog: SchemaCatalog | None = None, rele
     return sql
 
 
-def sql_generator(state: AgentState, llm_service: LLMService, catalog: SchemaCatalog | None = None) -> AgentState:
-    model = llm_service.build_chat_model()
-    generated_sql: str | None = None
+def _build_sql_generator_result(
+    state: AgentState,
+    catalog: SchemaCatalog | None,
+    generated_sql: str | None,
+    *,
+    llm_error: str | None = None,
+) -> AgentState:
     used_fallback = False
     status = "ready"
-    if model is not None:
-        content = _invoke_model_text(model, _build_sql_generation_prompt(state))
-        if content:
-            generated_sql = _normalize_sql(content)
     if not generated_sql:
         generated_sql = build_fallback_sql(
             state.get("user_input") or state.get("question") or "",
@@ -339,6 +425,7 @@ def sql_generator(state: AgentState, llm_service: LLMService, catalog: SchemaCat
         "retry_count": state.get("retry_count", 0),
         "used_fallback": used_fallback,
         "had_validation_error": bool(state.get("validation_error")),
+        "llm_error": llm_error,
     }
     debug_trace["sql_plan"] = {
         "mode": "direct_sql_generation",
@@ -358,6 +445,33 @@ def sql_generator(state: AgentState, llm_service: LLMService, catalog: SchemaCat
     }
 
 
+def sql_generator(state: AgentState, llm_service: LLMService, catalog: SchemaCatalog | None = None) -> AgentState:
+    model = llm_service.build_chat_model()
+    generated_sql: str | None = None
+    if model is not None:
+        content = _invoke_model_text(model, _build_sql_generation_prompt(state))
+        if content:
+            generated_sql = _normalize_sql(content)
+    return _build_sql_generator_result(state, catalog, generated_sql)
+
+
+async def async_sql_generator(state: AgentState, llm_service: LLMService, catalog: SchemaCatalog | None = None) -> AgentState:
+    model = llm_service.build_chat_model()
+    generated_sql: str | None = None
+    llm_error: str | None = None
+    if model is not None:
+        settings = get_settings()
+        content, llm_error = await _ainvoke_model_text(
+            model,
+            _build_sql_generation_prompt(state),
+            timeout_seconds=settings.agent_llm_node_timeout_seconds,
+            stage="sql_generator",
+        )
+        if content:
+            generated_sql = _normalize_sql(content)
+    return _build_sql_generator_result(state, catalog, generated_sql, llm_error=llm_error)
+
+
 def _should_run_mysql_explain() -> bool:
     database_url = (get_settings().database_url or "").lower()
     return "mysql" in database_url or "asyncmy" in database_url or "pymysql" in database_url
@@ -367,29 +481,46 @@ async def sql_validator(state: AgentState, validator: SQLValidator, executor: SQ
     sql = state.get("sql") or state.get("generated_sql") or ""
     retry_count = state.get("retry_count", 0)
     debug_trace = dict(state.get("debug_trace", {}))
+    settings = get_settings()
+    should_explain = _should_run_mysql_explain()
+    started_at = time.monotonic()
     try:
         validator.validate_read_only(sql)
-        if _should_run_mysql_explain():
-            await executor.explain(sql, params=state.get("sql_params", []))
+        if should_explain:
+            await executor.explain(
+                sql,
+                params=state.get("sql_params", []),
+                timeout_seconds=settings.sql_explain_timeout_seconds,
+            )
     except DangerousSQLError as error:
         message = str(error)
+    except TimeoutError:
+        message = "EXPLAIN 预检超时"
     except Exception as error:
         message = f"EXPLAIN 预检失败：{error.__class__.__name__}"
     else:
+        elapsed_ms = (time.monotonic() - started_at) * 1000
         debug_trace["sql_validator"] = {
             "passed": True,
             "retry_count": retry_count,
-            "explain": "mysql" if _should_run_mysql_explain() else "skipped_non_mysql",
+            "explain": "mysql" if should_explain else "skipped_non_mysql",
+            "duration_ms": round(elapsed_ms, 2),
+            "timeout_seconds": settings.sql_explain_timeout_seconds if should_explain else None,
         }
+        logger.info("agent.sql_validator.end passed=true duration_ms=%.2f", elapsed_ms)
         return {"validation_error": "", "validation_errors": [], "validation_issues": [], "debug_trace": debug_trace}
 
     next_retry_count = retry_count + 1
+    elapsed_ms = (time.monotonic() - started_at) * 1000
     debug_trace["sql_validator"] = {
         "passed": False,
         "retry_count": retry_count,
         "next_retry_count": next_retry_count,
         "error": message,
+        "duration_ms": round(elapsed_ms, 2),
+        "timeout_seconds": settings.sql_explain_timeout_seconds if should_explain else None,
     }
+    logger.info("agent.sql_validator.end passed=false duration_ms=%.2f error=%s", elapsed_ms, message)
     return {
         "validation_error": message,
         "validation_errors": [message],
@@ -411,7 +542,13 @@ async def sql_executor(state: AgentState, executor: SQLExecutor) -> AgentState:
     sql = state.get("sql") or state.get("generated_sql") or ""
     started_at = time.monotonic()
     try:
-        result = await executor.execute(sql, params=state.get("sql_params", []))
+        settings = get_settings()
+        result = await executor.execute(
+            sql,
+            params=state.get("sql_params", []),
+            max_rows=settings.query_result_limit,
+            timeout_seconds=settings.query_execution_timeout_seconds,
+        )
         elapsed_ms = (time.monotonic() - started_at) * 1000
         summary = result.execution_summary or ""
         is_error = summary.startswith("查询执行失败") or summary.startswith("查询执行超时")
@@ -421,7 +558,14 @@ async def sql_executor(state: AgentState, executor: SQLExecutor) -> AgentState:
             "columns": [] if is_error else result.columns,
             "execution_time_ms": round(elapsed_ms, 2),
             "status": "error" if is_error else "ready",
+            "timeout_seconds": settings.query_execution_timeout_seconds,
         }
+        logger.info(
+            "agent.sql_executor.end status=%s row_count=%s duration_ms=%.2f",
+            "error" if is_error else "ready",
+            0 if is_error else result.row_count,
+            elapsed_ms,
+        )
         return {
             "status": "error" if is_error else "ready",
             "query_result": [] if is_error else result.rows,
@@ -474,11 +618,10 @@ def _build_formatter_prompt(state: AgentState) -> str:
     )
 
 
-def result_formatter(state: AgentState, llm_service: LLMService) -> AgentState:
+def _default_final_answer(state: AgentState) -> tuple[str, str, str]:
     status = state.get("status", "ready")
     validation_error = state.get("validation_error", "")
     execution_summary = state.get("execution_summary", "")
-    rows = state.get("rows", [])
     row_count = state.get("row_count", 0)
 
     if validation_error:
@@ -492,13 +635,18 @@ def result_formatter(state: AgentState, llm_service: LLMService) -> AgentState:
         execution_summary = execution_summary or "查询执行成功，但没有返回记录。"
     else:
         final_answer = f"查询执行成功，共返回 {row_count} 行结果。"
+    return cast(str, status), execution_summary, final_answer
 
-    model = llm_service.build_chat_model()
-    if model is not None and not validation_error:
-        formatted = _invoke_model_text(model, _build_formatter_prompt(state))
-        if formatted:
-            final_answer = formatted.strip()
 
+def _build_formatter_result(
+    state: AgentState,
+    *,
+    status: str,
+    execution_summary: str,
+    final_answer: str,
+    llm_error: str | None = None,
+) -> AgentState:
+    row_count = state.get("row_count", 0)
     explanation = final_answer
     if state.get("execution_time_ms") is not None:
         explanation = f"{explanation} 执行耗时：{state.get('execution_time_ms'):.0f}ms。"
@@ -509,7 +657,8 @@ def result_formatter(state: AgentState, llm_service: LLMService) -> AgentState:
     debug_trace["result_formatter"] = {
         "status": status,
         "row_count": row_count,
-        "has_validation_error": bool(validation_error),
+        "has_validation_error": bool(state.get("validation_error", "")),
+        "llm_error": llm_error,
     }
     debug_trace["execution"] = {
         "row_count": row_count,
@@ -530,6 +679,44 @@ def result_formatter(state: AgentState, llm_service: LLMService) -> AgentState:
     if status == "error":
         result.update({"rows": [], "columns": [], "row_count": 0, "query_result": []})
     return result
+
+
+def result_formatter(state: AgentState, llm_service: LLMService) -> AgentState:
+    status, execution_summary, final_answer = _default_final_answer(state)
+    model = llm_service.build_chat_model()
+    if model is not None and not state.get("validation_error", ""):
+        formatted = _invoke_model_text(model, _build_formatter_prompt(state))
+        if formatted:
+            final_answer = formatted.strip()
+    return _build_formatter_result(
+        state,
+        status=status,
+        execution_summary=execution_summary,
+        final_answer=final_answer,
+    )
+
+
+async def async_result_formatter(state: AgentState, llm_service: LLMService) -> AgentState:
+    status, execution_summary, final_answer = _default_final_answer(state)
+    llm_error: str | None = None
+    model = llm_service.build_chat_model()
+    if model is not None and not state.get("validation_error", ""):
+        settings = get_settings()
+        formatted, llm_error = await _ainvoke_model_text(
+            model,
+            _build_formatter_prompt(state),
+            timeout_seconds=settings.result_formatter_llm_timeout_seconds,
+            stage="result_formatter",
+        )
+        if formatted:
+            final_answer = formatted.strip()
+    return _build_formatter_result(
+        state,
+        status=status,
+        execution_summary=execution_summary,
+        final_answer=final_answer,
+        llm_error=llm_error,
+    )
 
 
 def _detect_question_tags(question: str) -> list[str]:
