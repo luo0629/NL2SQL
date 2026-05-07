@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"Check backend conventions and boundaries"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Verify the six-node graph shape and retired pipeline constraints"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Verify database_url-scoped schema and semantic cache behavior"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Verify invalid overrides and diagnostics are controlled"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Verify tests and contract-sensitive changes"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Check no retired pipeline or duplicate provider/executor path is introduced"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check API/debug compatibility across backend and frontend"}

@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend agent, schema catalog, service, and configuration changes must follow backend conventions"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Business semantics must integrate with current six-node NL2SQL flow and not reintroduce retired modules"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Semantic layer must derive from live schema catalog and respect database_url cache behavior"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Invalid semantic overrides and schema refresh failures need controlled diagnostics"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Tests are required for schema catalog, graph behavior, and config-sensitive changes"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Reuse SchemaCatalog, RagService, LLMService, SQLValidator, and SQLExecutor instead of adding a parallel pipeline"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Semantic debug diagnostics may flow through existing API debug fields"}

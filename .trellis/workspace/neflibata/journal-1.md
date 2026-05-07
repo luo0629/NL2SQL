@@ -104,3 +104,37 @@ Refactored SQLAgent to the design-driven six-node NL2SQL pipeline, added backend
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Auto-refresh business semantic layer
+
+**Date**: 2026-05-07
+**Task**: Auto-refresh business semantic layer
+**Branch**: `main`
+
+### Summary
+
+Implemented an auto-refresh business semantic layer with database-scoped YAML generation, validated overrides, prompt integration, semantic noise reduction, and user-friendly output column preferences.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `17d6e92` | (see git log) |
+| `d5aaf7d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
