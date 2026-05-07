@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/index.md","reason":"检查后端职责边界和 NL2SQL 链路一致性"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"检查真实 SQL 执行、安全限制和数据库配置边界"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"检查错误反馈、修复失败和低置信度分支是否受控"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查测试覆盖、质量门禁和可维护性"}
+{"file":".trellis/spec/frontend/index.md","reason":"若响应字段影响前端，检查跨层契约是否同步"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"若前端调整，检查类型与展示质量"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查后端 API、前端消费和 debug 信息的一致性"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"检查是否复用现有能力，避免重复实现"}

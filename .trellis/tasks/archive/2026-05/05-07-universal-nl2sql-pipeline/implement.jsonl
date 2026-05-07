@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端 NL2SQL agent、service、validator、executor 改造需遵守后端总体规范"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"本任务涉及真实数据库执行、连接切换、只读和查询边界"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"执行失败、SQL 修复失败和低置信度门控需要受控错误处理"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"实现阶段需要遵守后端测试、质量和可维护性要求"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"API 响应和前端结果展示可能受后端链路变化影响"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"优先复用现有 schema_linking、SQLPlanner、SQLGenerator、SQLExecutor 能力"}
