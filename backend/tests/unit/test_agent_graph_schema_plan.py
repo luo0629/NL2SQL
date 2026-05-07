@@ -7,6 +7,7 @@ import app.agent.nodes as agent_nodes
 from app.agent.graph import reset_agent_graph, run_agent
 from app.agent.nodes import async_sql_generator, intent_parser, schema_retriever
 from app.database.executor import SQLExecutor
+from app.rag.business_semantics import attach_business_semantics
 from app.rag.schema_models import SchemaCatalog, SchemaColumn, SchemaRelation, SchemaTable
 from app.schemas.sql import SQLExecutionResult
 from app.services.llm_service import LLMService
@@ -150,7 +151,7 @@ class SlowLLMService(LLMService):
 
 
 def _make_dish_catalog() -> SchemaCatalog:
-    return SchemaCatalog(
+    return attach_business_semantics(SchemaCatalog(
         database="test_db",
         tables=[
             SchemaTable(
@@ -186,7 +187,7 @@ def _make_dish_catalog() -> SchemaCatalog:
                 relation_type="many-to-one",
             )
         ],
-    )
+    ))
 
 
 def test_intent_parser_filters_hallucinated_tables() -> None:
@@ -206,6 +207,22 @@ def test_schema_retriever_uses_only_relevant_tables() -> None:
     assert "`flavor`.`dish_id`" not in state["schema_context"]
     assert "`name`" in state["schema_context"]
     assert "default=" in state["schema_context"]
+
+
+def test_schema_retriever_includes_business_semantic_context() -> None:
+    catalog = _make_dish_catalog()
+    state = schema_retriever({"question": "查询销售额最高的商品", "relevant_tables": ["dish"]}, catalog)
+
+    assert "Business semantics:" in state["schema_context"]
+    assert "销售额" in state["semantic_context"]
+    assert state["debug_trace"]["schema_retriever"]["semantic_context_chars"] > 0
+
+
+def test_intent_parser_uses_semantic_terms_for_fallback_table_selection() -> None:
+    state = intent_parser({"question": "查询销售额最高的商品"}, StubLLMService(), _make_dish_catalog())
+
+    assert state["relevant_tables"][0] == "dish"
+    assert any(signal["term"] == "销售额" for signal in state["semantic_signals"])
 
 
 @pytest.mark.anyio

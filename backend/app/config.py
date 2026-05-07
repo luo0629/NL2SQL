@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -23,6 +24,9 @@ class Settings(BaseSettings):
     database_readonly_required: bool = True
     schema_cache_ttl_seconds: int = 300
     schema_sync_timeout_seconds: float = 8.0
+    business_semantic_yaml_enabled: bool = False
+    business_semantic_yaml_dir: str = str(PROJECT_ROOT / "yaml")
+    business_semantic_override_path: str | None = None
     llm_request_timeout_seconds: int = 45
     agent_llm_node_timeout_seconds: float = 12.0
     result_formatter_llm_timeout_seconds: float = 6.0

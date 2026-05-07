@@ -46,7 +46,7 @@ backend/
 | `routers/` | HTTP boundary and response model | `app/routers/query.py` keeps `POST /api/query` as one-line delegation to `AgentService.generate_sql()` |
 | `services/` | Dependency assembly and high-level orchestration | `app/services/agent_service.py` injects RAG, LLM, validator, and executor into `run_agent()` |
 | `agent/` | Shared agent state and LangGraph sequencing | `app/agent/graph.py` builds the full pipeline and `app/agent/state.py` defines the shared contract |
-| `rag/` | Live schema metadata sync and enrichment helpers | `app/rag/schema_sync.py`, `app/rag/schema_enrichment.py`, `app/rag/value_mapping_loader.py` |
+| `rag/` | Live schema metadata sync, enrichment helpers, and validated business semantics | `app/rag/schema_sync.py`, `app/rag/schema_enrichment.py`, `app/rag/business_semantics.py`, `app/rag/value_mapping_loader.py` |
 | `database/` | SQL execution and connection lifecycle | `app/database/executor.py` validates and executes SQL through SQLAlchemy async connections |
 | `validator/` | SQL safety enforcement | `app/validator/sql_validator.py` owns read-only validation before EXPLAIN/execution |
 
@@ -68,6 +68,8 @@ The current graph is the design-driven six-node NL2SQL flow. The real node order
 `intent_parser` → `schema_retriever` → `sql_generator` → `sql_validator` → (`sql_generator` retry loop or `sql_executor`) → `result_formatter`
 
 Legacy `SemanticQuery`, SQL plan rendering, schema linking, value linking, join path planning, business semantic brief, SQL repair, and few-shot manager modules are no longer part of the main path and should not be reintroduced without a new design decision.
+
+Business semantics are not a separate graph stage. They are catalog metadata generated under `rag/` and consumed by existing `intent_parser`, `schema_retriever`, and `sql_generator` nodes.
 
 ---
 

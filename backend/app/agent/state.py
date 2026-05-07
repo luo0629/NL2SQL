@@ -11,6 +11,8 @@ class AgentState(TypedDict, total=False):
     available_tables: list[str]
     # schema_retriever 输出：仅包含相关表的真实 schema 上下文。
     schema_context: str
+    semantic_context: str
+    semantic_signals: list[dict[str, Any]]
     # sql_generator 输出。
     generated_sql: str
     sql: str

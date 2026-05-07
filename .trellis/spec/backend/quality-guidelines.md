@@ -60,6 +60,8 @@ Always add or rerun focused tests when changing any of these:
 - graph routing in `app/agent/graph.py`
 - validator behavior in `app/validator/sql_validator.py`
 - executor result shape in `app/database/executor.py`
+- schema catalog shape in `app/rag/schema_models.py`
+- business semantic derivation or overrides in `app/rag/business_semantics.py`
 
 These modules define contracts shared across multiple layers.
 

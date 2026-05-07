@@ -6,6 +6,15 @@ from app.services import rag_service
 from app.services.rag_service import RagService
 
 
+@pytest.fixture(autouse=True)
+def clear_schema_catalog_cache() -> None:
+    rag_service._catalog_cache.clear()
+    rag_service._catalog_cached_at.clear()
+    yield
+    rag_service._catalog_cache.clear()
+    rag_service._catalog_cached_at.clear()
+
+
 @pytest.mark.anyio
 async def test_rag_service_schema_catalog_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     get_settings.cache_clear()
@@ -77,6 +86,47 @@ async def test_rag_service_schema_catalog_cache_is_keyed_by_database_url(monkeyp
         "sqlite+aiosqlite:///./first.db",
         "sqlite+aiosqlite:///./second.db",
     ]
+
+
+@pytest.mark.anyio
+async def test_rag_service_cache_stores_business_semantics_per_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("SCHEMA_CACHE_TTL_SECONDS", "300")
+    rag_service._catalog_cache.clear()
+    rag_service._catalog_cached_at.clear()
+
+    async def fake_sync_schema_metadata() -> SchemaCatalog:
+        database_url = get_settings().database_url
+        table_name = "orders" if "first" in database_url else "customers"
+        return SchemaCatalog(
+            database=database_url,
+            tables=[
+                SchemaTable(
+                    name=table_name,
+                    columns=[
+                        SchemaColumn(name="id", data_type="int", nullable=False, is_primary_key=True),
+                    ],
+                    searchable_terms=[table_name],
+                )
+            ],
+            relations=[],
+            synced_at="now",
+        )
+
+    monkeypatch.setattr(rag_service, "sync_schema_metadata", fake_sync_schema_metadata)
+
+    monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///./first.db")
+    get_settings.cache_clear()
+    first = await rag_service._get_schema_catalog()
+
+    monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///./second.db")
+    get_settings.cache_clear()
+    second = await rag_service._get_schema_catalog()
+
+    assert first.business_semantics is not None
+    assert second.business_semantics is not None
+    assert any(term.tables == ["orders"] for term in first.business_semantics.terms)
+    assert any(term.tables == ["customers"] for term in second.business_semantics.terms)
 
 
 @pytest.mark.anyio

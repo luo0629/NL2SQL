@@ -4,7 +4,8 @@ import asyncio
 import time
 
 from app.config import get_settings
-from app.rag.schema_models import SchemaCatalog, SchemaTable
+from app.rag.business_semantics import attach_business_semantics
+from app.rag.schema_models import BusinessSemanticLayer, SchemaCatalog, SchemaTable
 from app.rag.schema_sync import sync_schema_metadata
 
 
@@ -13,12 +14,25 @@ _catalog_cached_at: dict[str, float] = {}
 _catalog_lock = asyncio.Lock()
 
 
+def _ensure_business_semantics(catalog: SchemaCatalog) -> SchemaCatalog:
+    if catalog.business_semantics is None:
+        settings = get_settings()
+        return attach_business_semantics(
+            catalog,
+            settings.business_semantic_override_path,
+            yaml_enabled=settings.business_semantic_yaml_enabled,
+            database_url=settings.database_url,
+            yaml_dir=settings.business_semantic_yaml_dir,
+        )
+    return catalog
+
+
 async def _get_schema_catalog(refresh: bool = False) -> SchemaCatalog:
     settings = get_settings()
     cache_key = settings.database_url
     ttl_seconds = max(0, int(settings.schema_cache_ttl_seconds))
     if ttl_seconds <= 0 or refresh:
-        catalog = await sync_schema_metadata()
+        catalog = _ensure_business_semantics(await sync_schema_metadata())
         if ttl_seconds > 0:
             async with _catalog_lock:
                 _catalog_cache[cache_key] = catalog
@@ -38,13 +52,13 @@ async def _get_schema_catalog(refresh: bool = False) -> SchemaCatalog:
         if cached_catalog is not None and cached_at is not None and (now - cached_at) < ttl_seconds:
             return cached_catalog
 
-        catalog = await sync_schema_metadata()
+        catalog = _ensure_business_semantics(await sync_schema_metadata())
         _catalog_cache[cache_key] = catalog
         _catalog_cached_at[cache_key] = now
         return catalog
 
 
-def _score_table(question: str, table: SchemaTable) -> int:
+def _score_table(question: str, table: SchemaTable, semantics: BusinessSemanticLayer | None = None) -> int:
     normalized = question.lower()
     score = 0
     for term in [table.name, table.description or "", *table.aliases, *table.business_terms, *table.searchable_terms]:
@@ -56,11 +70,52 @@ def _score_table(question: str, table: SchemaTable) -> int:
             term = term.strip()
             if term and term.lower() in normalized:
                 score += 1
+    if semantics is not None:
+        for signal in semantics.terms:
+            if table.name in signal.tables and signal.term.lower() in normalized:
+                score += 5 if "override" in signal.sources else 3
     return score
 
 
 def _quote_identifier(identifier: str) -> str:
     return "`" + identifier.replace("`", "``") + "`"
+
+
+def _matching_semantic_lines(table: SchemaTable, semantics: BusinessSemanticLayer | None) -> list[str]:
+    if semantics is None:
+        return []
+    lines: list[str] = []
+    matched_terms = [term for term in semantics.terms if table.name in term.tables][:12]
+    if matched_terms:
+        lines.append("business_terms: " + "; ".join(
+            f"{term.term} -> tables={','.join(term.tables)} columns={','.join(term.columns)}"
+            for term in matched_terms
+        ))
+    matched_metrics = [metric for metric in semantics.metrics if metric.table == table.name][:8]
+    if matched_metrics:
+        lines.append("metrics: " + "; ".join(
+            f"{metric.name}={metric.table}.{metric.column} aliases={','.join(metric.aliases)}"
+            for metric in matched_metrics
+        ))
+    matched_dimensions = [dimension for dimension in semantics.dimensions if dimension.table == table.name][:8]
+    if matched_dimensions:
+        lines.append("dimensions: " + "; ".join(
+            f"{dimension.name}={dimension.table}.{dimension.column} aliases={','.join(dimension.aliases)}"
+            for dimension in matched_dimensions
+        ))
+    matched_enums = [enum for enum in semantics.enums if enum.table == table.name][:6]
+    if matched_enums:
+        lines.append("enums: " + "; ".join(
+            f"{enum.name}={enum.table}.{enum.column} values={enum.values}"
+            for enum in matched_enums
+        ))
+    matched_filters = [item for item in semantics.default_filters if item.table == table.name][:6]
+    if matched_filters:
+        lines.append("default_filters: " + "; ".join(
+            f"{item.name}: {item.condition}"
+            for item in matched_filters
+        ))
+    return lines
 
 
 def _render_table_context(table: SchemaTable, catalog: SchemaCatalog, selected_tables: set[str]) -> str:
@@ -69,6 +124,7 @@ def _render_table_context(table: SchemaTable, catalog: SchemaCatalog, selected_t
         lines.append(f"description: {table.description}")
     if table.primary_keys:
         lines.append(f"primary_keys: {', '.join(table.primary_keys)}")
+    lines.extend(_matching_semantic_lines(table, catalog.business_semantics))
     lines.append("columns:")
     for column in table.columns:
         attrs = [column.data_type, "nullable" if column.nullable else "not null"]
@@ -119,7 +175,7 @@ class RagService:
         selected_names = [name for name in relevant_tables or [] if name in table_by_name]
         if not selected_names:
             scored = [
-                (table.name, _score_table(question, table), index)
+                (table.name, _score_table(question, table, catalog.business_semantics), index)
                 for index, table in enumerate(catalog.tables)
             ]
             selected_names = [

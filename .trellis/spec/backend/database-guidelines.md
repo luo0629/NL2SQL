@@ -93,6 +93,79 @@ Real pattern from `_get_schema_catalog()`:
 
 ---
 
+## Scenario: Auto-refresh business semantic layer
+
+### 1. Scope / Trigger
+
+- Trigger: NL2SQL table and column selection must use business terms derived from live schema metadata and optional project overrides.
+- Applies to: `SchemaCatalog`, `business_semantics.py`, schema sync, `RagService` cache behavior, and agent prompt context.
+
+### 2. Signatures
+
+- Config key: `Settings.business_semantic_yaml_enabled: bool` toggles generated YAML override behavior.
+- Config key: `Settings.business_semantic_yaml_dir: str` defaults to the project `yaml/` directory for deterministic database-specific YAML files.
+- Legacy config key: `Settings.business_semantic_override_path: str | None` is still supported only when YAML generation is disabled.
+- Catalog field: `SchemaCatalog.business_semantics` stores derived/merged semantic artifacts and diagnostics.
+- Agent state fields: `AgentState.semantic_context: list[str]`, `AgentState.semantic_signals: dict[str, object]`.
+- Dependency: `pyyaml` is used only for optional YAML business semantic overrides.
+
+### 3. Contracts
+
+- Business semantics are derived from live `SchemaCatalog` metadata: table/column names, descriptions/comments, aliases, business terms, searchable terms, semantic roles, and enum-like comments.
+- Optional YAML overrides may add aliases, metrics, dimensions, enums, and default filters.
+- When YAML is enabled, the system writes/refreshes `business_semantics_<safe-label>_<hash>.yaml` under the configured YAML directory; filenames are derived from `database_url` without exposing credentials.
+- YAML files contain refreshed `generated` sections from live schema and user-editable `overrides` sections. Refreshes should preserve `overrides` where practical.
+- Override references must be validated against the live catalog. Invalid table names, column names, or unsafe SQL fragments are filtered and recorded as diagnostics.
+- Diagnostics may appear in debug metadata, but must not expose local absolute override file paths or secrets.
+- Semantic cache follows the existing `database_url`-scoped catalog cache; connecting a new database gets a separate semantic layer automatically.
+- Semantics enrich `intent_parser`, `schema_retriever`, and `sql_generator` context without changing the six-node graph shape.
+
+### 4. Validation & Error Matrix
+
+- Override file missing -> continue with auto-derived semantics and safe diagnostic.
+- Override YAML parse error -> continue with auto-derived semantics and safe diagnostic.
+- Override table not found -> filter that artifact and add diagnostic.
+- Override column not found -> filter that artifact and add diagnostic.
+- Override SQL fragment contains comments, semicolon, or dangerous keywords -> filter that artifact and add diagnostic.
+- Override SQL fragment references a table/column outside the declared real schema -> filter that artifact and add diagnostic.
+
+### 5. Good/Base/Bad Cases
+
+- Good: a new database with useful comments automatically produces table/column aliases and enum hints; optional YAML adds business metrics.
+- Base: no YAML file exists, so the system uses only live schema-derived semantics.
+- Bad: stale YAML points to a removed column and the stale reference is injected into the SQL prompt as truth.
+
+### 6. Tests Required
+
+- Unit: auto-derived semantics include terms from table/column names, comments, aliases, and business terms.
+- Unit: valid YAML overrides merge into catalog semantics.
+- Unit: invalid override references and dangerous SQL fragments are filtered into diagnostics.
+- Unit: boolean YAML disabled does not create YAML files.
+- Unit: YAML enabled creates database-specific files under `yaml/` with no credentials or absolute paths in generated content.
+- Unit: valid YAML overrides merge into catalog semantics.
+- Unit: missing legacy override file diagnostics do not expose absolute paths.
+- Cache: different `database_url` values keep separate semantic layers and YAML files through the existing catalog cache.
+- Graph: semantic context is available to intent/schema/sql generation without changing API response fields.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+semantic_rules = load_yaml("rules.yaml")
+prompt = f"Use these rules as truth: {semantic_rules}"
+```
+
+#### Correct
+
+```python
+catalog = await _get_schema_catalog()
+semantics = build_business_semantics(catalog, override_path=settings.business_semantic_override_path)
+# Only validated semantic artifacts are rendered into prompt context.
+```
+
+---
+
 ## Scenario: Design-driven NL2SQL execution with real schema and EXPLAIN
 
 ### 1. Scope / Trigger

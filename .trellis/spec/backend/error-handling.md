@@ -75,6 +75,66 @@ Do not write spec or code that assumes Zhipu is the only real-model path.
 
 - Forgetting that an execution failure may still produce a valid JSON response body with `status="error"`
 - Updating response status semantics in `app/schemas/query.py` without aligning frontend handling in `frontend/src/App.vue`
+- Treating business semantic override YAML as trusted input instead of validating references against the live schema catalog
+
+---
+
+## Scenario: Business semantic override diagnostics
+
+### 1. Scope / Trigger
+
+- Trigger: optional YAML business semantic overrides can contain stale schema references or unsafe SQL fragments.
+- Applies to: `business_semantics.py`, schema catalog construction, debug diagnostics, and prompt rendering.
+
+### 2. Signatures
+
+- Config key: `Settings.business_semantic_yaml_enabled: bool` controls generated YAML override behavior.
+- Legacy config key: `Settings.business_semantic_override_path: str | None` is only used when generated YAML behavior is disabled.
+- Diagnostics live under `SchemaCatalog.business_semantics.diagnostics` and may be mirrored into agent debug metadata.
+
+### 3. Contracts
+
+- Invalid override entries are diagnostics, not fatal API errors.
+- Invalid override entries must not be injected into prompt context as truth.
+- Diagnostics must be safe: no absolute local file paths, credentials, raw stack traces, or connection strings.
+- Auto-derived semantics remain available when override loading fails.
+- Generated YAML content and diagnostics must not include raw `database_url`, credentials, or local absolute YAML paths.
+
+### 4. Validation & Error Matrix
+
+- Missing override file -> safe diagnostic and continue.
+- YAML parse error -> safe diagnostic and continue.
+- Unknown table/column -> filter entry and continue.
+- Unsafe SQL fragment -> filter entry and continue.
+
+### 5. Good/Base/Bad Cases
+
+- Good: stale metric referencing `orders.deleted_column` is filtered and reported in diagnostics.
+- Base: no override path configured; diagnostics are empty and auto-derived semantics are used.
+- Bad: raw Windows path or raw YAML exception is exposed in API debug output.
+
+### 6. Tests Required
+
+- Missing override path does not expose absolute path.
+- Invalid references are filtered.
+- Dangerous fragments are filtered.
+- Valid overrides survive merge.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+business_context.append(raw_override_metric)
+```
+
+#### Correct
+
+```python
+validated_metric = validate_metric_override(raw_override_metric, catalog)
+if validated_metric is not None:
+    business_context.append(validated_metric)
+```
 
 ---
 

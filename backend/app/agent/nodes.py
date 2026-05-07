@@ -10,7 +10,7 @@ from typing import Any, cast
 from app.agent.state import AgentState
 from app.config import get_settings
 from app.database.executor import SQLExecutor
-from app.rag.schema_models import SchemaCatalog, SchemaTable
+from app.rag.schema_models import BusinessSemanticLayer, SchemaCatalog, SchemaTable
 from app.services.llm_service import LLMService
 from app.utils.exceptions import DangerousSQLError
 from app.validator.sql_validator import SQLValidator
@@ -137,7 +137,71 @@ def _catalog_tables(catalog: SchemaCatalog | None) -> list[SchemaTable]:
     return catalog.tables if catalog and catalog.tables else []
 
 
-def _table_score(question: str, table: SchemaTable) -> int:
+def _catalog_semantics(catalog: SchemaCatalog | None) -> BusinessSemanticLayer | None:
+    return catalog.business_semantics if catalog and catalog.business_semantics else None
+
+
+def _semantic_matches(question: str, semantics: BusinessSemanticLayer | None, table_names: set[str] | None = None, limit: int = 20) -> list[dict[str, Any]]:
+    if semantics is None:
+        return []
+    normalized = question.lower()
+    matches: list[dict[str, Any]] = []
+    allowed = table_names or set()
+    for term in semantics.terms:
+        if term.term.lower() not in normalized:
+            continue
+        if allowed and not any(table in allowed for table in term.tables):
+            continue
+        matches.append(
+            {
+                "term": term.term,
+                "kind": term.kind,
+                "tables": [table for table in term.tables if not allowed or table in allowed],
+                "columns": [column for column in term.columns if not allowed or column.split(".", 1)[0] in allowed],
+                "sources": term.sources,
+            }
+        )
+        if len(matches) >= limit:
+            break
+    return matches
+
+
+def _render_semantic_context(semantics: BusinessSemanticLayer | None, selected_table_names: set[str], question: str = "") -> str:
+    if semantics is None:
+        return ""
+    lines: list[str] = []
+    matched = _semantic_matches(question, semantics, selected_table_names, limit=16) if question else []
+    if matched:
+        lines.append("Matched business terms:")
+        for item in matched:
+            lines.append(
+                f"- {item['term']} ({item['kind']}): tables={', '.join(item['tables'])}; columns={', '.join(item['columns'])}; sources={', '.join(item['sources'])}"
+            )
+    metrics = [metric for metric in semantics.metrics if metric.table in selected_table_names][:12]
+    if metrics:
+        lines.append("Business metrics:")
+        for metric in metrics:
+            expr = f"; expression={metric.expression}" if metric.expression else ""
+            lines.append(f"- {metric.name}: {metric.table}.{metric.column}; aliases={', '.join(metric.aliases)}{expr}; source={metric.source}")
+    dimensions = [dimension for dimension in semantics.dimensions if dimension.table in selected_table_names][:12]
+    if dimensions:
+        lines.append("Business dimensions:")
+        for dimension in dimensions:
+            lines.append(f"- {dimension.name}: {dimension.table}.{dimension.column}; aliases={', '.join(dimension.aliases)}; source={dimension.source}")
+    enums = [enum for enum in semantics.enums if enum.table in selected_table_names][:10]
+    if enums:
+        lines.append("Business enums:")
+        for enum in enums:
+            lines.append(f"- {enum.name}: {enum.table}.{enum.column}; values={json.dumps(enum.values, ensure_ascii=False)}; source={enum.source}")
+    filters = [item for item in semantics.default_filters if item.table in selected_table_names][:8]
+    if filters:
+        lines.append("Default filters from validated overrides:")
+        for item in filters:
+            lines.append(f"- {item.name}: table={item.table}; condition={item.condition}; aliases={', '.join(item.aliases)}")
+    return "\n".join(lines)
+
+
+def _table_score(question: str, table: SchemaTable, semantics: BusinessSemanticLayer | None = None) -> int:
     normalized = question.lower()
     score = 0
     candidates = [table.name, table.description or "", *table.aliases, *table.business_terms]
@@ -151,6 +215,10 @@ def _table_score(question: str, table: SchemaTable) -> int:
             term = term.strip()
             if term and term.lower() in normalized:
                 score += 2
+    if semantics is not None:
+        for signal in semantics.terms:
+            if table.name in signal.tables and signal.term.lower() in normalized:
+                score += 8 if "override" in signal.sources else 4
     return score
 
 
@@ -158,7 +226,8 @@ def _fallback_relevant_tables(question: str, catalog: SchemaCatalog | None, limi
     tables = _catalog_tables(catalog)
     if not tables:
         return []
-    scored = [(table.name, _table_score(question, table), index) for index, table in enumerate(tables)]
+    semantics = _catalog_semantics(catalog)
+    scored = [(table.name, _table_score(question, table, semantics), index) for index, table in enumerate(tables)]
     selected = [name for name, score, _index in sorted(scored, key=lambda item: (-item[1], item[2])) if score > 0]
     if not selected:
         selected = [table.name for table in tables]
@@ -167,10 +236,13 @@ def _fallback_relevant_tables(question: str, catalog: SchemaCatalog | None, limi
 
 def _build_intent_prompt(question: str, table_names: list[str], catalog: SchemaCatalog | None) -> str:
     table_summaries: list[str] = []
+    semantics = _catalog_semantics(catalog)
     for table in _catalog_tables(catalog):
         terms = [table.description or "", *table.aliases, *table.business_terms]
-        summary = "、".join(term for term in terms if term) or "无补充说明"
+        semantic_terms = [term.term for term in semantics.terms if table.name in term.tables][:12] if semantics else []
+        summary = "、".join(term for term in [*terms, *semantic_terms] if term) or "无补充说明"
         table_summaries.append(f"- {table.name}: {summary}")
+    matched_semantics = _render_semantic_context(semantics, set(table_names), question)
     return "\n".join(
         [
             "你是 NL2SQL 的 intent_parser。只返回一个 JSON 对象，不要生成 SQL。",
@@ -180,6 +252,8 @@ def _build_intent_prompt(question: str, table_names: list[str], catalog: SchemaC
             f"真实表名列表：{', '.join(table_names) if table_names else '(空)'}",
             "表说明：",
             "\n".join(table_summaries[:80]),
+            "业务语义上下文（来自真实 schema 与已验证覆盖文件，只能作为选表线索）：",
+            matched_semantics or "(无匹配业务语义)",
             f"用户问题：{question}",
         ]
     )
@@ -210,19 +284,26 @@ def _build_intent_result(
             if filtered:
                 relevant_tables = list(dict.fromkeys(filtered))[:4]
 
+    semantic_signals = _semantic_matches(question, _catalog_semantics(catalog), set(relevant_tables))
     debug_trace = dict(state.get("debug_trace", {}))
     debug_trace["intent_parser"] = {
         "source": source,
         "available_table_count": len(table_names),
         "relevant_tables": relevant_tables,
+        "semantic_signal_count": len(semantic_signals),
         "llm_error": llm_error,
     }
+    if catalog and catalog.business_semantics and catalog.business_semantics.diagnostics:
+        debug_trace["business_semantics"] = {
+            "diagnostics": catalog.business_semantics.diagnostics,
+        }
     return {
         "user_input": question,
         "question": question,
         "intent": intent,
         "relevant_tables": relevant_tables,
         "available_tables": table_names,
+        "semantic_signals": semantic_signals,
         "debug_trace": debug_trace,
     }
 
@@ -268,6 +349,10 @@ def _format_table_schema(
         lines.append(f"Comment: {table.description}")
     if table.primary_keys:
         lines.append(f"Primary keys: {', '.join(_quote_identifier(key) for key in table.primary_keys)}")
+    semantic_context = _render_semantic_context(_catalog_semantics(catalog), {table.name})
+    if semantic_context:
+        lines.append("Business semantics:")
+        lines.append(semantic_context)
     lines.append("Columns:")
     for column in table.columns:
         attrs = [column.data_type]
@@ -314,14 +399,21 @@ def schema_retriever(state: AgentState, catalog: SchemaCatalog | None = None) ->
         _format_table_schema(table, catalog, selected_table_names)
         for table in selected_tables
     )
+    semantic_context = _render_semantic_context(
+        _catalog_semantics(catalog),
+        selected_table_names,
+        state.get("user_input") or state.get("question") or "",
+    )
     debug_trace = dict(state.get("debug_trace", {}))
     debug_trace["schema_retriever"] = {
         "tables": [table.name for table in selected_tables],
         "schema_context_chars": len(schema_context),
+        "semantic_context_chars": len(semantic_context),
     }
     matched_table_names = [table.name for table in selected_tables]
     return {
         "schema_context": schema_context,
+        "semantic_context": semantic_context,
         "relevant_tables": matched_table_names,
         "debug_trace": debug_trace,
     }
@@ -335,12 +427,14 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
         "你是 MySQL NL2SQL 生成器。只输出一条 SQL，不要解释，不要 Markdown。",
         "硬性规则：只能生成只读 SELECT/WITH 查询；禁止 INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/TRUNCATE/GRANT/EXEC/SLEEP/BENCHMARK。",
         "所有表名和字段名必须用反引号包裹。",
-        "只能使用 schema_context 中出现的表和字段；不确定时选择最小可执行查询。",
+        "只能使用 schema_context 中出现的表和字段；业务语义只用于解释同义词、指标、枚举和默认过滤，不能引入未出现在 schema_context 的表字段。",
         "如需要 LIMIT，必须同时给出稳定 ORDER BY。",
         "默认添加合理 LIMIT 200，除非用户明确要求更小。",
         f"用户问题：{state.get('user_input') or state.get('question') or ''}",
         f"意图：{state.get('intent', '')}",
         f"相关表：{', '.join(state.get('relevant_tables', []))}",
+        "business_semantic_context:",
+        state.get("semantic_context", "") or "(无)",
         "schema_context:",
         state.get("schema_context", ""),
     ]
