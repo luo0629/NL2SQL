@@ -36,4 +36,9 @@ docs
 .claude
 .cursor
 CLAUDE.md
-.trellis/
+.trellis/*
+!.trellis/spec/
+!.trellis/spec/**
+!.trellis/workflow.md
+!.trellis/scripts/
+!.trellis/scripts/**
