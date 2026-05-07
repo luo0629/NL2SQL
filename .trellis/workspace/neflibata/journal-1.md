@@ -138,3 +138,36 @@ Implemented an auto-refresh business semantic layer with database-scoped YAML ge
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Conversational enum mappings
+
+**Date**: 2026-05-07
+**Task**: Conversational enum mappings
+**Branch**: `main`
+
+### Summary
+
+Added value-level conversational enum aliases, rendered enum mappings next to schema fields, strengthened enum prompt-safety checks, and preserved the six-node NL2SQL pipeline.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e4aad9f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

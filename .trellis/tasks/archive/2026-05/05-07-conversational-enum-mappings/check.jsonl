@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"Check backend conventions and boundaries"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Verify six-node flow and retired pipeline constraints"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Verify enum mapping contract in schema/business semantic context"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Verify invalid enum override diagnostics are controlled"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Verify tests and contract-sensitive changes"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Check no duplicate enum/linking pipeline is introduced"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check API/frontend compatibility"}

@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend enum mapping changes must follow backend conventions"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Enum mapping must integrate with current six-node NL2SQL flow and not reintroduce retired modules"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Enum mappings are schema/business semantic metadata rendered into schema context"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Invalid enum overrides and unsafe fragments need controlled diagnostics"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Tests are required for schema context, business semantics, and config-sensitive changes"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Reuse business semantic layer and SchemaCatalog instead of adding a parallel enum pipeline"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Ensure API response shape and frontend behavior stay compatible"}
