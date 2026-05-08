@@ -237,3 +237,36 @@ Added pre-execution value existence validation for NL2SQL using SQL parsing, dat
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Cross database join support
+
+**Date**: 2026-05-08
+**Task**: Cross database join support
+**Branch**: `main`
+
+### Summary
+
+Added same-instance multi-database schema support, qualified cross-database SQL context, value validation updates, and schema whitelist configuration for jc_experimental tables.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8a56ee2` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

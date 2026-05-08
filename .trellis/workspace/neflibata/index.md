@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-05-08
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~239 | Active |
+| `journal-1.md` | ~272 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-05-08 | Cross database join support | `8a56ee2` | `main` |
 | 7 | 2026-05-08 | Value existence validation before SQL execution | `e03e138` | `main` |
 | 6 | 2026-05-08 | SQL prompt field matching rules | `7f70538` | `main` |
 | 5 | 2026-05-07 | Conversational enum mappings | `e4aad9f` | `main` |
