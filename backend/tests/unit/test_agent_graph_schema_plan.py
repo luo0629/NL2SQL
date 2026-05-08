@@ -255,6 +255,21 @@ def test_schema_context_marks_ids_as_join_internal_but_keeps_them_visible() -> N
     assert "`flavor`.`dish_id` -> `dish`.`id`" in state["schema_context"]
 
 
+def test_sql_generation_prompt_guides_field_matching_rules() -> None:
+    prompt = agent_nodes._build_sql_generation_prompt({
+        "question": "查询起售菜品名称包含牛肉的记录",
+        "schema_context": "Table `dish`\n- `name` (VARCHAR; comment=菜品名称)\n- `status` (INTEGER; comment=0 未上架 1 起售; enum_mapping: 未上架=0, 起售=1)",
+        "semantic_context": "(无)",
+        "relevant_tables": ["dish"],
+    })
+
+    assert "带 enum_mapping/枚举对照的字段必须使用精确匹配" in prompt
+    assert "匹配值只能来自 schema_context 中该字段的 enum_mapping" in prompt
+    assert "名称类字符串字段" in prompt
+    assert "默认使用 LIKE 模糊匹配" in prompt
+    assert "字段类型或业务含义不确定时，优先使用 LIKE" in prompt
+
+
 def test_fallback_sql_prefers_display_columns_over_bare_id() -> None:
     sql = build_fallback_sql("查询菜品", _make_dish_catalog(), ["dish"])
 
