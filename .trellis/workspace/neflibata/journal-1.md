@@ -171,3 +171,36 @@ Added value-level conversational enum aliases, rendered enum mappings next to sc
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: SQL prompt field matching rules
+
+**Date**: 2026-05-08
+**Task**: SQL prompt field matching rules
+**Branch**: `main`
+
+### Summary
+
+Updated SQL generation prompt with enum exact matching, LIKE matching for name-like strings, and uncertain-field LIKE fallback; added prompt coverage test.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7f70538` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
