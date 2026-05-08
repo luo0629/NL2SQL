@@ -72,6 +72,7 @@ class SchemaColumn(BaseModel):
 
 class SchemaTable(BaseModel):
     name: str
+    database: str | None = None
     description: str | None = None
     aliases: list[str] = Field(default_factory=list)
     business_terms: list[str] = Field(default_factory=list)
@@ -80,15 +81,29 @@ class SchemaTable(BaseModel):
     indexes: list[str] = Field(default_factory=list)
     searchable_terms: list[str] = Field(default_factory=list)
 
+    @property
+    def qualified_name(self) -> str:
+        return f"{self.database}.{self.name}" if self.database else self.name
+
 
 class SchemaRelation(BaseModel):
     from_table: str
     from_column: str
     to_table: str
     to_column: str
+    from_database: str | None = None
+    to_database: str | None = None
     relation_type: str | None = None
     confidence: str | None = None
     join_hint: str | None = None
+
+    @property
+    def from_qualified_table(self) -> str:
+        return f"{self.from_database}.{self.from_table}" if self.from_database else self.from_table
+
+    @property
+    def to_qualified_table(self) -> str:
+        return f"{self.to_database}.{self.to_table}" if self.to_database else self.to_table
 
 
 class SchemaCatalog(BaseModel):

@@ -103,6 +103,23 @@ async def test_sql_executor_returns_empty_result_summary() -> None:
 
 
 @pytest.mark.anyio
+async def test_sql_executor_value_probe_quotes_identifiers() -> None:
+    engine: AsyncEngine = create_async_engine("sqlite+aiosqlite:///:memory:")
+
+    async with engine.begin() as connection:
+        await connection.exec_driver_sql("CREATE TABLE dish (id INTEGER, name TEXT)")
+        await connection.exec_driver_sql("INSERT INTO dish (id, name) VALUES (1, 'Noodles')")
+
+    executor = SQLExecutor(engine=engine)
+
+    assert await executor.value_exists("dish", "name", "Noodles") is True
+    assert await executor.value_exists("dish", "name", "Rice") is False
+    assert await executor.suggest_similar_values("dish", "name", "No") == ["Noodles"]
+
+    await engine.dispose()
+
+
+@pytest.mark.anyio
 async def test_sql_executor_blocks_dangerous_sql() -> None:
     engine: AsyncEngine = create_async_engine("sqlite+aiosqlite:///:memory:")
     executor = SQLExecutor(engine=engine)

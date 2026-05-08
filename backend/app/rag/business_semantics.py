@@ -25,8 +25,8 @@ from app.rag.schema_models import (
 )
 
 
-_REF_PATTERN = re.compile(r"^([A-Za-z_][\w$]*)(?:\.([A-Za-z_][\w$]*))?$")
-_QUALIFIED_REF_PATTERN = re.compile(r"`?([A-Za-z_][\w$]*)`?\s*\.\s*`?([A-Za-z_][\w$]*)`?")
+_REF_PATTERN = re.compile(r"^([A-Za-z_][\w$]*)(?:\.([A-Za-z_][\w$]*))?(?:\.([A-Za-z_][\w$]*))?$")
+_QUALIFIED_REF_PATTERN = re.compile(r"(?:`?([A-Za-z_][\w$]*)`?\s*\.\s*)?`?([A-Za-z_][\w$]*)`?\s*\.\s*`?([A-Za-z_][\w$]*)`?")
 _DANGEROUS_FRAGMENT_PATTERN = re.compile(
     r";|--|/\*|\*/|\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|exec|execute|sleep|benchmark)\b",
     re.IGNORECASE,
@@ -112,10 +112,11 @@ def business_semantic_yaml_path(database_url: str, yaml_dir: str | Path) -> Path
 
 def _schema_signature(catalog: SchemaCatalog) -> str:
     parts: list[str] = []
-    for table in sorted(catalog.tables, key=lambda item: item.name):
-        parts.append(table.name)
+    for table in sorted(catalog.tables, key=lambda item: item.qualified_name):
+        table_identity = table.qualified_name
+        parts.append(table_identity)
         for column in sorted(table.columns, key=lambda item: item.name):
-            parts.append(f"{table.name}.{column.name}:{column.data_type}:{column.nullable}:{column.default or ''}:{column.description or ''}")
+            parts.append(f"{table_identity}.{column.name}:{column.data_type}:{column.nullable}:{column.default or ''}:{column.description or ''}")
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
@@ -273,27 +274,50 @@ def conversational_enum_mapping_for_field(semantics: BusinessSemanticLayer | Non
 
 
 def _table_maps(catalog: SchemaCatalog) -> tuple[dict[str, SchemaTable], dict[str, set[str]]]:
-    table_by_name = {table.name: table for table in catalog.tables}
-    columns_by_table = {table.name: {column.name for column in table.columns} for table in catalog.tables}
+    table_by_name: dict[str, SchemaTable] = {}
+    columns_by_table: dict[str, set[str]] = {}
+    name_counts: dict[str, int] = {}
+    for table in catalog.tables:
+        name_counts[table.name] = name_counts.get(table.name, 0) + 1
+    for table in catalog.tables:
+        table_by_name[table.qualified_name] = table
+        columns_by_table[table.qualified_name] = {column.name for column in table.columns}
+        if name_counts[table.name] == 1:
+            table_by_name[table.name] = table
+            columns_by_table[table.name] = {column.name for column in table.columns}
     return table_by_name, columns_by_table
 
 
 def _parse_column_ref(ref: str, table_by_name: dict[str, SchemaTable], columns_by_table: dict[str, set[str]]) -> tuple[str, str] | None:
     match = _REF_PATTERN.match(_clean_text(ref))
-    if not match or not match.group(2):
+    if not match:
         return None
-    table_name, column_name = match.group(1), match.group(2)
-    if table_name in table_by_name and column_name in columns_by_table.get(table_name, set()):
-        return table_name, column_name
+    parts = [part for part in match.groups() if part]
+    if len(parts) == 2:
+        table_name, column_name = parts
+    elif len(parts) == 3:
+        table_name, column_name = f"{parts[0]}.{parts[1]}", parts[2]
+    else:
+        return None
+    table = table_by_name.get(table_name)
+    if table is not None and column_name in columns_by_table.get(table_name, set()):
+        return table.qualified_name, column_name
     return None
 
 
 def _parse_table_ref(ref: str, table_by_name: dict[str, SchemaTable]) -> str | None:
     match = _REF_PATTERN.match(_clean_text(ref))
-    if not match or match.group(2):
+    if not match:
         return None
-    table_name = match.group(1)
-    return table_name if table_name in table_by_name else None
+    parts = [part for part in match.groups() if part]
+    if len(parts) == 1:
+        table_name = parts[0]
+    elif len(parts) == 2:
+        table_name = f"{parts[0]}.{parts[1]}"
+    else:
+        return None
+    table = table_by_name.get(table_name)
+    return table.qualified_name if table is not None else None
 
 
 def derive_business_semantics(catalog: SchemaCatalog) -> BusinessSemanticLayer:
@@ -303,20 +327,21 @@ def derive_business_semantics(catalog: SchemaCatalog) -> BusinessSemanticLayer:
     enums: list[BusinessEnum] = []
 
     for table in catalog.tables:
-        table_sources = [table.name, table.description or "", *table.aliases, *table.business_terms, *table.searchable_terms]
+        table_identity = table.qualified_name
+        table_sources = [table.name, table_identity, table.description or "", *table.aliases, *table.business_terms, *table.searchable_terms]
         for term in table_sources:
-            _add_term(terms, term, table=table.name, kind="table", source="schema")
+            _add_term(terms, term, table=table_identity, kind="table", source="schema")
         for column in table.columns:
             kind = _column_kind(column)
             column_terms = [column.name, column.description or "", *column.business_terms, column.semantic_role or ""]
             for term in column_terms:
-                _add_term(terms, term, table=table.name, column=column.name, kind=kind, source="schema")
+                _add_term(terms, term, table=table_identity, column=column.name, kind=kind, source="schema")
             aliases = _dedupe([column.name, *column.business_terms])
             if kind == "metric":
                 metrics.append(
                     BusinessMetric(
                         name=column.business_terms[0] if column.business_terms else column.name,
-                        table=table.name,
+                        table=table_identity,
                         column=column.name,
                         aliases=aliases,
                         description=column.description,
@@ -327,7 +352,7 @@ def derive_business_semantics(catalog: SchemaCatalog) -> BusinessSemanticLayer:
                 dimensions.append(
                     BusinessDimension(
                         name=column.business_terms[0] if column.business_terms else column.name,
-                        table=table.name,
+                        table=table_identity,
                         column=column.name,
                         aliases=aliases,
                         description=column.description,
@@ -340,7 +365,7 @@ def derive_business_semantics(catalog: SchemaCatalog) -> BusinessSemanticLayer:
                 enums.append(
                     BusinessEnum(
                         name=f"{table.name}.{column.name}",
-                        table=table.name,
+                        table=table_identity,
                         column=column.name,
                         values=enum_values,
                         aliases=enum_aliases,
@@ -349,7 +374,7 @@ def derive_business_semantics(catalog: SchemaCatalog) -> BusinessSemanticLayer:
                     )
                 )
                 for label in enum_values.values():
-                    _add_term(terms, label, table=table.name, column=column.name, kind="enum", source="schema")
+                    _add_term(terms, label, table=table_identity, column=column.name, kind="enum", source="schema")
 
     return BusinessSemanticLayer(
         terms=sorted(terms.values(), key=lambda item: item.term.lower()),
@@ -436,14 +461,17 @@ def _validate_sql_fragment(
         diagnostics.append({"level": "warning", "code": "SEMANTIC_OVERRIDE_UNSAFE_FRAGMENT", "message": f"Ignored unsafe SQL fragment for {owner}."})
         return None, []
     references: list[str] = []
-    for table_name, column_name in _QUALIFIED_REF_PATTERN.findall(text):
-        if table_name not in table_by_name or column_name not in columns_by_table.get(table_name, set()):
+    for database_name, table_part, column_name in _QUALIFIED_REF_PATTERN.findall(text):
+        table_name = f"{database_name}.{table_part}" if database_name else table_part
+        table = table_by_name.get(table_name)
+        canonical_table = table.qualified_name if table is not None else table_name
+        if table is None or column_name not in columns_by_table.get(table_name, set()):
             diagnostics.append({"level": "warning", "code": "SEMANTIC_OVERRIDE_INVALID_FRAGMENT_REF", "message": f"Ignored SQL fragment with invalid reference for {owner}: {table_name}.{column_name}"})
             return None, []
-        if required_table is not None and table_name != required_table:
+        if required_table is not None and canonical_table != required_table:
             diagnostics.append({"level": "warning", "code": "SEMANTIC_OVERRIDE_TABLE_COLUMN_MISMATCH", "message": f"Ignored SQL fragment for {owner}: table does not match referenced column."})
             return None, []
-        references.append(f"{table_name}.{column_name}")
+        references.append(f"{canonical_table}.{column_name}")
     return text, _dedupe(references)
 
 
@@ -455,13 +483,14 @@ def _generated_yaml_payload(catalog: SchemaCatalog, base: BusinessSemanticLayer,
     identity = _database_identity(database_url)
     aliases: dict[str, dict[str, Any]] = {}
     for table in catalog.tables:
+        table_identity = table.qualified_name
         table_aliases = _dedupe([*table.aliases, *table.business_terms])
         if table_aliases:
-            aliases[table.name] = {"tables": [table.name], "aliases": table_aliases}
+            aliases[table_identity] = {"tables": [table_identity], "aliases": table_aliases}
         for column in table.columns:
             column_aliases = _dedupe(column.business_terms)
             if column_aliases:
-                aliases[f"{table.name}.{column.name}"] = {"columns": [f"{table.name}.{column.name}"], "aliases": column_aliases}
+                aliases[f"{table_identity}.{column.name}"] = {"columns": [f"{table_identity}.{column.name}"], "aliases": column_aliases}
     return {
         "metadata": {
             "format_version": 1,
@@ -537,7 +566,7 @@ def merge_business_semantic_overrides(catalog: SchemaCatalog, base: BusinessSema
             terms[key] = BusinessSemanticTerm(
                 term=alias,
                 kind="alias",
-                tables=_dedupe([*valid_tables, *[column.split(".", 1)[0] for column in valid_columns]]),
+                tables=_dedupe([*valid_tables, *[column.rsplit(".", 1)[0] for column in valid_columns]]),
                 columns=valid_columns,
                 sources=["override"],
             )
@@ -557,7 +586,7 @@ def merge_business_semantic_overrides(catalog: SchemaCatalog, base: BusinessSema
             column_ref = _validate_columns(item.get("column") or item.get("columns"), table_by_name, columns_by_table, diagnostics, f"{section} {name}")
             if table is None or not column_ref:
                 continue
-            first_table, first_column = column_ref[0].split(".", 1)
+            first_table, first_column = column_ref[0].rsplit(".", 1)
             if first_table != table:
                 diagnostics.append({"level": "warning", "code": "SEMANTIC_OVERRIDE_TABLE_COLUMN_MISMATCH", "message": f"Ignored {section} {name}: table does not match column reference."})
                 continue
@@ -584,7 +613,7 @@ def merge_business_semantic_overrides(catalog: SchemaCatalog, base: BusinessSema
             values = item.get("values") if isinstance(item.get("values"), dict) else {}
             if table is None or not column_refs or not values:
                 continue
-            first_table, first_column = column_refs[0].split(".", 1)
+            first_table, first_column = column_refs[0].rsplit(".", 1)
             if first_table != table:
                 diagnostics.append({"level": "warning", "code": "SEMANTIC_OVERRIDE_TABLE_COLUMN_MISMATCH", "message": f"Ignored enum {name}: table does not match column reference."})
                 continue

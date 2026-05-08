@@ -43,6 +43,14 @@ class FakeLLMService(LLMService):
 
 
 class StubSQLExecutor(SQLExecutor):
+    async def explain(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> None:
+        return None
+
     async def execute(
         self,
         sql: str,
@@ -268,6 +276,8 @@ def test_sql_generation_prompt_guides_field_matching_rules() -> None:
     assert "名称类字符串字段" in prompt
     assert "默认使用 LIKE 模糊匹配" in prompt
     assert "字段类型或业务含义不确定时，优先使用 LIKE" in prompt
+    assert "必须使用 MySQL 全限定表名" in prompt
+    assert "`jc_config`.`table`" in prompt
 
 
 def test_fallback_sql_prefers_display_columns_over_bare_id() -> None:
@@ -283,6 +293,49 @@ def test_fallback_sql_allows_identifier_when_user_explicitly_asks() -> None:
     sql = build_fallback_sql("查询菜品ID和名称", _make_dish_catalog(), ["dish"])
 
     assert sql.startswith("SELECT `id`, `name`, `price`, `status`, `created_at` FROM `dish`")
+
+
+def test_schema_context_and_fallback_sql_use_qualified_table_names() -> None:
+    catalog = attach_business_semantics(SchemaCatalog(
+        database="jc_config,jc_experimental",
+        tables=[
+            SchemaTable(
+                database="jc_config",
+                name="employee",
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="name", data_type="VARCHAR", nullable=True, semantic_role="dimension"),
+                ],
+            ),
+            SchemaTable(
+                database="jc_experimental",
+                name="employee",
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="experiment_name", data_type="VARCHAR", nullable=True, semantic_role="dimension"),
+                ],
+            ),
+        ],
+        relations=[
+            SchemaRelation(
+                from_database="jc_experimental",
+                from_table="employee",
+                from_column="id",
+                to_database="jc_config",
+                to_table="employee",
+                to_column="id",
+                relation_type="foreign_key",
+            )
+        ],
+    ))
+
+    state = schema_retriever({"question": "查询员工实验", "relevant_tables": ["jc_config.employee", "jc_experimental.employee"]}, catalog)
+    sql = build_fallback_sql("查询员工", catalog, ["jc_config.employee"])
+
+    assert "Table `jc_config`.`employee`" in state["schema_context"]
+    assert "Table `jc_experimental`.`employee`" in state["schema_context"]
+    assert "`jc_experimental`.`employee`.`id` -> `jc_config`.`employee`.`id`" in state["schema_context"]
+    assert "FROM `jc_config`.`employee`" in sql
 
 
 @pytest.mark.anyio
@@ -340,6 +393,30 @@ async def test_agent_graph_sanitizes_execution_failures() -> None:
     assert state["status"] == "error"
     assert "RuntimeError" in state["execution_summary"]
     assert "database_url" not in state["execution_summary"]
+
+
+@pytest.mark.anyio
+async def test_agent_graph_sanitizes_schema_catalog_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    reset_agent_graph()
+
+    async def fail_schema_catalog(*args, **kwargs):
+        raise RuntimeError("mysql://user:secret@localhost/jc_config is unavailable")
+
+    monkeypatch.setattr("app.services.rag_service._get_schema_catalog", fail_schema_catalog)
+
+    state = await run_agent(
+        question="查询员工",
+        rag_service=StubRagService(),
+        llm_service=StubLLMService(),
+        validator=SQLValidator(),
+        executor=StubSQLExecutor(),
+    )
+
+    assert state["status"] == "error"
+    assert state["execution_summary"] == "读取数据库 schema 失败，已停止本次查询。"
+    assert "secret" not in state["execution_summary"]
+    assert "secret" not in state["explanation"]
+    assert state["debug_trace"]["schema_catalog"]["error_class"] == "RuntimeError"
 
 
 @pytest.mark.anyio

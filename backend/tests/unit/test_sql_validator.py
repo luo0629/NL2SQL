@@ -41,6 +41,16 @@ def test_sql_validator_allows_with_prefix() -> None:
     )
 
 
+def test_sql_validator_allows_safe_cross_database_select() -> None:
+    validator = SQLValidator()
+
+    validator.validate_read_only(
+        "SELECT c.`name`, e.`name` FROM `jc_config`.`employee` c "
+        "JOIN `jc_experimental`.`employee` e ON e.`id` = c.`id` "
+        "ORDER BY c.`id` LIMIT 20;"
+    )
+
+
 def test_sql_validator_rejects_prefix_lookalike() -> None:
     validator = SQLValidator()
 

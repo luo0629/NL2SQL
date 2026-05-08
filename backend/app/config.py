@@ -1,9 +1,10 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import ClassVar
+from typing import Annotated, ClassVar
 
-from pydantic import SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, field_validator
+from sqlalchemy.engine import make_url
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
@@ -19,6 +20,8 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://localhost:4242"
     # 基础依赖配置
     database_url: str = "sqlite+aiosqlite:///./nl2sql.db"
+    database_names: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    schema_include_tables: Annotated[list[str], NoDecode] = Field(default_factory=list)
     redis_url: str = "redis://localhost:6379/0"
     query_result_limit: int = 200
     database_readonly_required: bool = True
@@ -48,6 +51,57 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @field_validator("database_names", "schema_include_tables", mode="before")
+    @classmethod
+    def _parse_comma_separated_list(cls, value: object) -> list[str]:
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return []
+
+    @property
+    def effective_database_names(self) -> list[str]:
+        if self.database_names:
+            return list(dict.fromkeys(self.database_names))
+        try:
+            database = make_url(self.database_url).database
+        except Exception:
+            database = None
+        return [database] if database else []
+
+    @property
+    def effective_schema_include_tables(self) -> list[str]:
+        seen: set[str] = set()
+        tables: list[str] = []
+        for table in self.schema_include_tables:
+            normalized = table.strip().replace("`", "")
+            if not normalized:
+                continue
+            dedupe_key = normalized.casefold()
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            tables.append(normalized)
+        return tables
+
+    @property
+    def schema_scope_key(self) -> str:
+        database_scope = ",".join(self.effective_database_names)
+        table_scope = ",".join(self.effective_schema_include_tables)
+        try:
+            url = make_url(self.database_url)
+        except Exception:
+            base_url = self.database_url
+        else:
+            driver_name = url.drivername.lower()
+            if self.database_names and ("mysql" in driver_name or "mariadb" in driver_name):
+                url = url._replace(database=None)
+            base_url = url.render_as_string(hide_password=True)
+        return f"{base_url}|databases={database_scope}|tables={table_scope}"
 
 
 @lru_cache(maxsize=1)

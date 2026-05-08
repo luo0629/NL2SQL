@@ -129,6 +129,74 @@ def test_business_semantics_merges_valid_overrides_and_filters_invalid_refs(tmp_
     assert any(diagnostic["code"] == "SEMANTIC_OVERRIDE_UNSAFE_FRAGMENT" for diagnostic in semantics.diagnostics)
 
 
+def test_business_semantics_accepts_database_qualified_overrides(tmp_path) -> None:
+    catalog = SchemaCatalog(
+        database="jc_config,jc_experimental",
+        tables=[
+            SchemaTable(
+                database="jc_config",
+                name="employee",
+                columns=[
+                    SchemaColumn(name="id", data_type="int", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="name", data_type="varchar", nullable=True, semantic_role="dimension"),
+                    SchemaColumn(name="status", data_type="int", nullable=True, description="0 离职 1 在职"),
+                ],
+            ),
+            SchemaTable(
+                database="jc_experimental",
+                name="employee",
+                columns=[
+                    SchemaColumn(name="id", data_type="int", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="name", data_type="varchar", nullable=True, semantic_role="dimension"),
+                ],
+            ),
+        ],
+    )
+    override_path = tmp_path / "business_semantics.yaml"
+    override_path.write_text(
+        json.dumps(
+            {
+                "aliases": {
+                    "配置员工": {
+                        "tables": ["jc_config.employee"],
+                        "columns": ["jc_config.employee.name"],
+                    }
+                },
+                "metrics": {
+                    "员工姓名指标": {
+                        "table": "jc_config.employee",
+                        "column": "jc_config.employee.name",
+                    }
+                },
+                "enums": {
+                    "员工状态": {
+                        "table": "jc_config.employee",
+                        "column": "jc_config.employee.status",
+                        "values": {"1": "在职"},
+                    }
+                },
+                "default_filters": {
+                    "在职员工": {
+                        "table": "jc_config.employee",
+                        "condition": "`jc_config`.`employee`.`status` = 1",
+                        "columns": ["jc_config.employee.status"],
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    semantics = build_business_semantics(catalog, str(override_path))
+
+    assert any(term.term == "配置员工" and term.tables == ["jc_config.employee"] and term.columns == ["jc_config.employee.name"] for term in semantics.terms)
+    assert any(metric.name == "员工姓名指标" and metric.table == "jc_config.employee" and metric.column == "name" for metric in semantics.metrics)
+    assert any(enum.name == "员工状态" and enum.table == "jc_config.employee" and enum.column == "status" for enum in semantics.enums)
+    assert any(item.name == "在职员工" and item.table == "jc_config.employee" and item.columns == ["jc_config.employee.status"] for item in semantics.default_filters)
+    assert not semantics.diagnostics
+
+
 def test_enum_yaml_overrides_add_value_level_conversational_aliases(tmp_path) -> None:
     override_path = tmp_path / "business_semantics.yaml"
     override_path.write_text(

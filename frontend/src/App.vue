@@ -37,7 +37,7 @@ const executionSkipped = ref(false)
 const status = ref<StatusTone>('idle')
 const statusMessage = ref('等待输入。')
 const errorMessage = ref('')
-const QUERY_TIMEOUT_MS = 60_000
+const QUERY_TIMEOUT_MS = 600_000
 let activeRequestController: AbortController | null = null
 let activeRequestId = 0
 

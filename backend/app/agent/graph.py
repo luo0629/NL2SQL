@@ -14,6 +14,7 @@ from app.agent.nodes import (
     schema_retriever,
     sql_executor,
     sql_validator,
+    value_validator,
 )
 from app.agent.state import AgentState
 from app.config import get_settings
@@ -69,6 +70,9 @@ def build_agent_graph(
     async def sql_validator_node(state: object) -> AgentState:
         return await sql_validator(cast(AgentState, state), validator, executor)
 
+    async def value_validator_node(state: object) -> AgentState:
+        return await value_validator(cast(AgentState, state), executor, catalog)
+
     async def sql_executor_node(state: object) -> AgentState:
         return await sql_executor(cast(AgentState, state), executor)
 
@@ -79,6 +83,7 @@ def build_agent_graph(
     _ = graph_builder.add_node("schema_retriever", schema_retriever_node)
     _ = graph_builder.add_node("sql_generator", sql_generator_node)
     _ = graph_builder.add_node("sql_validator", sql_validator_node)
+    _ = graph_builder.add_node("value_validator", value_validator_node)
     _ = graph_builder.add_node("sql_executor", sql_executor_node)
     _ = graph_builder.add_node("result_formatter", result_formatter_node)
 
@@ -88,6 +93,15 @@ def build_agent_graph(
     _ = graph_builder.add_edge("sql_generator", "sql_validator")
     _ = graph_builder.add_conditional_edges(
         "sql_validator",
+        _after_sql_validation,
+        {
+            "sql_generator": "sql_generator",
+            "sql_executor": "value_validator",
+            "result_formatter": "result_formatter",
+        },
+    )
+    _ = graph_builder.add_conditional_edges(
+        "value_validator",
         _after_sql_validation,
         {
             "sql_generator": "sql_generator",
@@ -167,6 +181,32 @@ async def run_agent(
                 "schema_catalog": {
                     "status": "timeout",
                     "timeout_seconds": settings.schema_sync_timeout_seconds,
+                    "duration_ms": round(elapsed_ms, 2),
+                }
+            },
+        }
+    except Exception as error:
+        elapsed_ms = (time.monotonic() - schema_started_at) * 1000
+        logger.warning(
+            "agent.schema_catalog.error error_class=%s duration_ms=%.2f",
+            error.__class__.__name__,
+            elapsed_ms,
+        )
+        return {
+            "question": question,
+            "user_input": question,
+            "sql": "",
+            "generated_sql": "",
+            "status": "error",
+            "rows": [],
+            "columns": [],
+            "row_count": 0,
+            "execution_summary": "读取数据库 schema 失败，已停止本次查询。",
+            "explanation": "读取数据库 schema 失败，请确认数据库连接和权限后重试。",
+            "debug_trace": {
+                "schema_catalog": {
+                    "status": "error",
+                    "error_class": error.__class__.__name__,
                     "duration_ms": round(elapsed_ms, 2),
                 }
             },

@@ -11,6 +11,7 @@ from app.agent.state import AgentState
 from app.config import get_settings
 from app.database.executor import SQLExecutor
 from app.rag.business_semantics import conversational_enum_mapping, conversational_enum_mapping_for_field
+from app.agent.value_validation import MissingValueIssue, build_missing_value_prompt, extract_value_predicates
 from app.rag.schema_models import BusinessSemanticLayer, SchemaCatalog, SchemaTable
 from app.services.llm_service import LLMService
 from app.utils.exceptions import DangerousSQLError
@@ -121,6 +122,36 @@ async def _ainvoke_model_json(
 
 def _quote_identifier(identifier: str) -> str:
     return "`" + identifier.replace("`", "``") + "`"
+
+
+def _qualified_table_name(table: SchemaTable) -> str:
+    if table.database:
+        return f"{_quote_identifier(table.database)}.{_quote_identifier(table.name)}"
+    return _quote_identifier(table.name)
+
+
+def _table_identity(table: SchemaTable) -> str:
+    return table.qualified_name
+
+
+def _relation_endpoint(database: str | None, table: str, column: str) -> str:
+    if database:
+        return f"{_quote_identifier(database)}.{_quote_identifier(table)}.{_quote_identifier(column)}"
+    return f"{_quote_identifier(table)}.{_quote_identifier(column)}"
+
+
+def _build_table_lookup(tables: list[SchemaTable]) -> dict[str, SchemaTable]:
+    lookup: dict[str, SchemaTable] = {}
+    counts: dict[str, int] = {}
+    for table in tables:
+        counts[table.name.lower()] = counts.get(table.name.lower(), 0) + 1
+    for table in tables:
+        lookup[table.qualified_name] = table
+        lookup[table.qualified_name.lower()] = table
+        if counts[table.name.lower()] == 1:
+            lookup[table.name] = table
+            lookup[table.name.lower()] = table
+    return lookup
 
 
 def _dedupe(values: list[str]) -> list[str]:
@@ -331,7 +362,7 @@ def _semantic_matches(question: str, semantics: BusinessSemanticLayer | None, ta
                 "term": term.term,
                 "kind": term.kind,
                 "tables": [table for table in term.tables if not allowed or table in allowed],
-                "columns": [column for column in term.columns if not allowed or column.split(".", 1)[0] in allowed],
+                "columns": [column for column in term.columns if not allowed or any(column.startswith(f"{table}.") for table in allowed)],
                 "sources": term.sources,
             }
         )
@@ -400,11 +431,11 @@ def _render_semantic_context(semantics: BusinessSemanticLayer | None, selected_t
 def _table_score(question: str, table: SchemaTable, semantics: BusinessSemanticLayer | None = None) -> int:
     normalized = question.lower()
     score = 0
-    candidates = [table.name, table.description or "", *table.aliases, *table.business_terms]
+    candidates = [table.name, _table_identity(table), table.description or "", *table.aliases, *table.business_terms]
     for term in candidates:
         term = term.strip()
         if term and term.lower() in normalized:
-            score += 6 if term == table.name else 4
+            score += 6 if term in {table.name, _table_identity(table)} else 4
     for column in table.columns:
         column_terms = [column.name, column.description or "", *(column.business_terms or [])]
         for term in column_terms:
@@ -415,7 +446,7 @@ def _table_score(question: str, table: SchemaTable, semantics: BusinessSemanticL
         for signal in semantics.terms:
             if _is_low_value_semantic_term(signal.term):
                 continue
-            if table.name in signal.tables and signal.term.lower() in normalized:
+            if _table_identity(table) in signal.tables and signal.term.lower() in normalized:
                 score += 8 if "override" in signal.sources else 4
     return score
 
@@ -428,7 +459,7 @@ def _expand_selected_tables_with_relations(selected: list[str], catalog: SchemaC
 
     # Preserve real-schema join ability without broadening single-table queries:
     # add only a one-hop bridge table that connects two already-selected tables.
-    relation_pairs = [({relation.from_table, relation.to_table}, relation) for relation in catalog.relations]
+    relation_pairs = [({relation.from_qualified_table, relation.to_qualified_table}, relation) for relation in catalog.relations]
     for first_endpoints, _first_relation in relation_pairs:
         if len(expanded) >= limit:
             break
@@ -452,10 +483,10 @@ def _fallback_relevant_tables(question: str, catalog: SchemaCatalog | None, limi
     if not tables:
         return []
     semantics = _catalog_semantics(catalog)
-    scored = [(table.name, _table_score(question, table, semantics), index) for index, table in enumerate(tables)]
+    scored = [(_table_identity(table), _table_score(question, table, semantics), index) for index, table in enumerate(tables)]
     selected = [name for name, score, _index in sorted(scored, key=lambda item: (-item[1], item[2])) if score > 0]
     if not selected:
-        selected = [table.name for table in tables]
+        selected = [_table_identity(table) for table in tables]
     return _expand_selected_tables_with_relations(selected[:limit], catalog, limit=limit)
 
 
@@ -466,10 +497,10 @@ def _build_intent_prompt(question: str, table_names: list[str], catalog: SchemaC
         terms = [table.description or "", *table.aliases, *table.business_terms, *table.searchable_terms]
         semantic_terms = [
             item["term"]
-            for item in _semantic_matches(question, semantics, {table.name}, limit=6)
+            for item in _semantic_matches(question, semantics, {_table_identity(table)}, limit=6)
         ] if semantics else []
         summary = "、".join(term for term in _dedupe([*terms, *semantic_terms]) if term) or "无补充说明"
-        table_summaries.append(f"- {table.name}: {summary}")
+        table_summaries.append(f"- {_table_identity(table)}: {summary}")
     matched_semantics = _render_semantic_context(semantics, set(table_names), question)
     return "\n".join(
         [
@@ -496,8 +527,8 @@ def _build_intent_result(
     llm_error: str | None = None,
 ) -> AgentState:
     question = (state.get("user_input") or state.get("question") or "").strip()
-    table_names = [table.name for table in _catalog_tables(catalog)]
-    allowed = set(table_names)
+    table_names = [_table_identity(table) for table in _catalog_tables(catalog)]
+    table_lookup = _build_table_lookup(_catalog_tables(catalog))
     fallback_tables = _fallback_relevant_tables(question, catalog)
     intent = f"查询需求：{question}" if question else "查询数据库信息"
     relevant_tables = fallback_tables
@@ -508,7 +539,7 @@ def _build_intent_result(
             intent = candidate_intent.strip()
         raw_tables = payload.get("relevant_tables", [])
         if isinstance(raw_tables, list):
-            filtered = [str(item).strip() for item in raw_tables if str(item).strip() in allowed]
+            filtered = [_table_identity(table_lookup[str(item).strip()]) for item in raw_tables if str(item).strip() in table_lookup]
             if filtered:
                 relevant_tables = _expand_selected_tables_with_relations(list(dict.fromkeys(filtered))[:4], catalog, limit=4)
 
@@ -538,7 +569,7 @@ def _build_intent_result(
 
 def intent_parser(state: AgentState, llm_service: LLMService, catalog: SchemaCatalog | None = None) -> AgentState:
     question = (state.get("user_input") or state.get("question") or "").strip()
-    table_names = [table.name for table in _catalog_tables(catalog)]
+    table_names = [_table_identity(table) for table in _catalog_tables(catalog)]
     model = llm_service.build_chat_model()
     payload: dict[str, Any] | None = None
     source = "deterministic"
@@ -550,7 +581,7 @@ def intent_parser(state: AgentState, llm_service: LLMService, catalog: SchemaCat
 
 async def async_intent_parser(state: AgentState, llm_service: LLMService, catalog: SchemaCatalog | None = None) -> AgentState:
     question = (state.get("user_input") or state.get("question") or "").strip()
-    table_names = [table.name for table in _catalog_tables(catalog)]
+    table_names = [_table_identity(table) for table in _catalog_tables(catalog)]
     model = llm_service.build_chat_model()
     payload: dict[str, Any] | None = None
     llm_error: str | None = None
@@ -572,7 +603,8 @@ def _format_table_schema(
     catalog: SchemaCatalog | None,
     selected_table_names: set[str] | None = None,
 ) -> str:
-    lines = [f"Table {_quote_identifier(table.name)}"]
+    table_identity = _table_identity(table)
+    lines = [f"Table {_qualified_table_name(table)}"]
     if table.description:
         lines.append(f"Comment: {table.description}")
     if table.primary_keys:
@@ -595,7 +627,7 @@ def _format_table_schema(
         if column.semantic_role:
             attrs.append(f"role={column.semantic_role}")
         attrs.append(f"output={_column_output_hint(column)}")
-        enum_mapping = conversational_enum_mapping_for_field(_catalog_semantics(catalog), table.name, column.name)
+        enum_mapping = conversational_enum_mapping_for_field(_catalog_semantics(catalog), table_identity, column.name)
         if column.description:
             comment = column.description
             if enum_mapping:
@@ -607,20 +639,20 @@ def _format_table_schema(
             attrs.append(f"terms={', '.join(column.business_terms)}")
         lines.append(f"- {_quote_identifier(column.name)} ({'; '.join(attrs)})")
 
-    selected_table_names = selected_table_names or {table.name}
+    selected_table_names = selected_table_names or {table_identity}
     relations = [] if catalog is None else [
         relation for relation in catalog.relations
-        if (relation.from_table == table.name or relation.to_table == table.name)
-        and relation.from_table in selected_table_names
-        and relation.to_table in selected_table_names
+        if (relation.from_qualified_table == table_identity or relation.to_qualified_table == table_identity)
+        and relation.from_qualified_table in selected_table_names
+        and relation.to_qualified_table in selected_table_names
     ]
     if relations:
         lines.append("Relations:")
         for relation in relations:
             hint = f"; hint={relation.join_hint}" if relation.join_hint else ""
             lines.append(
-                f"- {_quote_identifier(relation.from_table)}.{_quote_identifier(relation.from_column)} -> "
-                f"{_quote_identifier(relation.to_table)}.{_quote_identifier(relation.to_column)}"
+                f"- {_relation_endpoint(relation.from_database, relation.from_table, relation.from_column)} -> "
+                f"{_relation_endpoint(relation.to_database, relation.to_table, relation.to_column)}"
                 f" ({relation.relation_type or 'relation'}{hint})"
             )
     return "\n".join(lines)
@@ -628,11 +660,18 @@ def _format_table_schema(
 
 def schema_retriever(state: AgentState, catalog: SchemaCatalog | None = None) -> AgentState:
     relevant = state.get("relevant_tables", [])
-    relevant_set = set(relevant)
-    selected_tables = [table for table in _catalog_tables(catalog) if table.name in relevant_set]
+    table_lookup = _build_table_lookup(_catalog_tables(catalog))
+    selected_tables = []
+    seen_selected: set[str] = set()
+    for name in relevant:
+        table = table_lookup.get(name)
+        if table is None or _table_identity(table) in seen_selected:
+            continue
+        selected_tables.append(table)
+        seen_selected.add(_table_identity(table))
     if not selected_tables:
         selected_tables = _catalog_tables(catalog)[:4]
-    selected_table_names = {table.name for table in selected_tables}
+    selected_table_names = {_table_identity(table) for table in selected_tables}
     schema_context = "\n\n".join(
         _format_table_schema(table, catalog, selected_table_names)
         for table in selected_tables
@@ -644,11 +683,11 @@ def schema_retriever(state: AgentState, catalog: SchemaCatalog | None = None) ->
     )
     debug_trace = dict(state.get("debug_trace", {}))
     debug_trace["schema_retriever"] = {
-        "tables": [table.name for table in selected_tables],
+        "tables": [_table_identity(table) for table in selected_tables],
         "schema_context_chars": len(schema_context),
         "semantic_context_chars": len(semantic_context),
     }
-    matched_table_names = [table.name for table in selected_tables]
+    matched_table_names = [_table_identity(table) for table in selected_tables]
     return {
         "schema_context": schema_context,
         "semantic_context": semantic_context,
@@ -664,7 +703,7 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
     parts = [
         "你是 MySQL NL2SQL 生成器。只输出一条 SQL，不要解释，不要 Markdown。",
         "硬性规则：只能生成只读 SELECT/WITH 查询；禁止 INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/TRUNCATE/GRANT/EXEC/SLEEP/BENCHMARK。",
-        "所有表名和字段名必须用反引号包裹。",
+        "所有表名和字段名必须用反引号包裹。跨数据库或 schema_context 中显示为数据库限定的表，必须使用 MySQL 全限定表名，如 `jc_config`.`table`、`jc_experimental`.`table`。",
         "只能使用 schema_context 中出现的表和字段；业务语义只用于解释同义词、指标、枚举和默认过滤，不能引入未出现在 schema_context 的表字段。",
         "SELECT 输出默认优先选择 schema_context 标注的 Preferred SELECT output columns 或 output=business-readable 字段，例如 name/title/amount/status/time/description。",
         "WHERE 字段匹配规则：带 enum_mapping/枚举对照的字段必须使用精确匹配（= 或 IN），匹配值只能来自 schema_context 中该字段的 enum_mapping，禁止编造枚举值。",
@@ -696,20 +735,20 @@ def build_fallback_sql(question: str, catalog: SchemaCatalog | None = None, rele
     tables = _catalog_tables(catalog)
     if not tables:
         return "SELECT 1 AS result;"
-    table_by_name = {table.name: table for table in tables}
+    table_by_name = _build_table_lookup(tables)
     selected_name = None
     for name in relevant_tables or []:
         if name in table_by_name:
-            selected_name = name
+            selected_name = _table_identity(table_by_name[name])
             break
     if selected_name is None:
         selected = _fallback_relevant_tables(question, catalog, limit=1)
-        selected_name = selected[0] if selected else tables[0].name
+        selected_name = selected[0] if selected else _table_identity(tables[0])
     table = table_by_name[selected_name]
     columns = _select_display_columns(table, question, limit=5)
     select_expr = ", ".join("*" if column == "*" else _quote_identifier(column) for column in columns)
     order_column = next((column.name for column in table.columns if column.is_primary_key), None) or (table.columns[0].name if table.columns else None)
-    sql = f"SELECT {select_expr} FROM {_quote_identifier(table.name)}"
+    sql = f"SELECT {select_expr} FROM {_qualified_table_name(table)}"
     if order_column:
         sql += f" ORDER BY {_quote_identifier(order_column)} DESC"
     sql += " LIMIT 20;"
@@ -845,6 +884,75 @@ async def sql_validator(state: AgentState, validator: SQLValidator, executor: SQ
         "retry_count": next_retry_count,
         "debug_trace": debug_trace,
         "explanation": f"SQL 验证未通过：{message}",
+    }
+
+
+async def value_validator(state: AgentState, executor: SQLExecutor, catalog: SchemaCatalog | None = None) -> AgentState:
+    sql = state.get("sql") or state.get("generated_sql") or ""
+    debug_trace = dict(state.get("debug_trace", {}))
+    if catalog is None or not hasattr(executor, "value_exists") or not hasattr(executor, "suggest_similar_values"):
+        debug_trace["value_validator"] = {"status": "skipped"}
+        return {"debug_trace": debug_trace}
+
+    predicates = extract_value_predicates(sql, catalog)
+    if not predicates:
+        debug_trace["value_validator"] = {"status": "skipped", "predicate_count": 0}
+        return {"debug_trace": debug_trace}
+
+    settings = get_settings()
+    issues: list[MissingValueIssue] = []
+    for predicate in predicates:
+        exists = await executor.value_exists(
+            predicate.table,
+            predicate.column,
+            predicate.value,
+            timeout_seconds=settings.sql_explain_timeout_seconds,
+        )
+        if exists:
+            continue
+        suggestions = await executor.suggest_similar_values(
+            predicate.table,
+            predicate.column,
+            predicate.value,
+            timeout_seconds=settings.sql_explain_timeout_seconds,
+        )
+        issues.append(
+            MissingValueIssue(
+                table=predicate.table,
+                column=predicate.column,
+                value=predicate.value,
+                suggestions=suggestions,
+            )
+        )
+
+    if not issues:
+        debug_trace["value_validator"] = {"status": "passed", "predicate_count": len(predicates)}
+        return {"validation_error": "", "validation_errors": [], "validation_issues": [], "debug_trace": debug_trace}
+
+    retry_count = state.get("retry_count", 0)
+    next_retry_count = retry_count + 1
+    message = build_missing_value_prompt(state.get("user_input") or state.get("question") or "", issues)
+    debug_trace["value_validator"] = {
+        "status": "failed",
+        "predicate_count": len(predicates),
+        "missing_count": len(issues),
+        "retry_count": retry_count,
+        "next_retry_count": next_retry_count,
+    }
+    return {
+        "validation_error": message,
+        "validation_errors": [message],
+        "validation_issues": [
+            {
+                "level": "error",
+                "code": "VALUE_NOT_FOUND",
+                "message": message,
+                "repairable": next_retry_count < state.get("max_retries", 3),
+            }
+        ],
+        "retry_count": next_retry_count,
+        "debug_trace": debug_trace,
+        "explanation": message,
     }
 
 

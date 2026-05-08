@@ -60,6 +60,38 @@ def test_extract_value_predicates_skips_ambiguous_or_and_non_string_columns() ->
     assert extract_value_predicates("SELECT * FROM `dish` WHERE `status` = '起售'", catalog) == []
 
 
+def test_extract_value_predicates_resolves_database_qualified_tables_and_aliases() -> None:
+    catalog = SchemaCatalog(
+        database="jc_config,jc_experimental",
+        tables=[
+            SchemaTable(
+                database="jc_config",
+                name="employee",
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="name", data_type="VARCHAR", nullable=True),
+                ],
+            ),
+            SchemaTable(
+                database="jc_experimental",
+                name="employee",
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="name", data_type="VARCHAR", nullable=True),
+                ],
+            ),
+        ],
+    )
+
+    predicates = extract_value_predicates(
+        "SELECT * FROM `jc_config`.`employee` e WHERE e.`name` = '张三'",
+        catalog,
+    )
+
+    assert [(item.table, item.column, item.value) for item in predicates] == [("jc_config.employee", "name", "张三")]
+    assert extract_value_predicates("SELECT * FROM `employee` WHERE `name` = '张三'", catalog) == []
+
+
 class FakeValueProbeExecutor:
     def __init__(self, existing: set[tuple[str, str, str]] | None = None) -> None:
         self.existing = existing or set()

@@ -53,6 +53,61 @@ class SQLExecutor:
         async with self.engine.connect() as connection:
             await connection.execute(text(f"EXPLAIN {sql}"), sql_params)
 
+    def _quote_identifier(self, identifier: str) -> str:
+        return "`" + identifier.replace("`", "``") + "`"
+
+    def _quote_table_name(self, table: str) -> str:
+        return ".".join(self._quote_identifier(part) for part in table.split(".") if part)
+
+    async def value_exists(
+        self,
+        table: str,
+        column: str,
+        value: str,
+        timeout_seconds: float | None = None,
+    ) -> bool:
+        table_name = self._quote_table_name(table)
+        column_name = self._quote_identifier(column)
+        sql = f"SELECT 1 FROM {table_name} WHERE {column_name} = :value LIMIT 1"
+        execution = self._run_scalar_exists(sql, {"value": value})
+        if timeout_seconds is not None:
+            import asyncio
+
+            return await asyncio.wait_for(execution, timeout=timeout_seconds)
+        return await execution
+
+    async def _run_scalar_exists(self, sql: str, params: dict[str, object]) -> bool:
+        async with self.engine.connect() as connection:
+            result = await connection.execute(text(sql), params)
+            return result.first() is not None
+
+    async def suggest_similar_values(
+        self,
+        table: str,
+        column: str,
+        value: str,
+        limit: int = 5,
+        timeout_seconds: float | None = None,
+    ) -> list[str]:
+        table_name = self._quote_table_name(table)
+        column_name = self._quote_identifier(column)
+        bounded_limit = max(1, min(limit, 20))
+        sql = (
+            f"SELECT DISTINCT {column_name} AS value FROM {table_name} "
+            f"WHERE {column_name} LIKE :pattern ORDER BY {column_name} LIMIT {bounded_limit}"
+        )
+        execution = self._run_suggestions(sql, {"pattern": f"%{value}%"})
+        if timeout_seconds is not None:
+            import asyncio
+
+            return await asyncio.wait_for(execution, timeout=timeout_seconds)
+        return await execution
+
+    async def _run_suggestions(self, sql: str, params: dict[str, object]) -> list[str]:
+        async with self.engine.connect() as connection:
+            result = await connection.execute(text(sql), params)
+            return [str(row[0]) for row in result.fetchall() if row[0] is not None]
+
     async def execute(
         self,
         sql: str,

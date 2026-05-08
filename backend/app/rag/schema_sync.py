@@ -66,6 +66,7 @@ def _add_search_variants(terms: set[str], value: str | None) -> None:
 
 def _build_search_terms(
     table_name: str,
+    database_name: str | None,
     table_description: str | None,
     table_aliases: list[str],
     table_business_terms: list[str],
@@ -73,6 +74,9 @@ def _build_search_terms(
 ) -> list[str]:
     terms: set[str] = set()
     _add_search_variants(terms, table_name)
+    if database_name:
+        _add_search_variants(terms, database_name)
+        _add_search_variants(terms, f"{database_name}.{table_name}")
     _add_search_variants(terms, table_description)
 
     for alias in table_aliases:
@@ -91,191 +95,287 @@ def _build_search_terms(
     return sorted(terms)
 
 
+def _schema_kw(database_name: str | None) -> dict[str, str]:
+    return {"schema": database_name} if database_name else {}
+
+
+def _normalize_identifier(identifier: str) -> str:
+    return identifier.strip().strip("`")
+
+
+def _split_table_identifier(identifier: str) -> tuple[str | None, str] | None:
+    parts = [_normalize_identifier(part) for part in identifier.split(".")]
+    parts = [part for part in parts if part]
+    if len(parts) == 1:
+        return None, parts[0]
+    if len(parts) == 2:
+        return parts[0], parts[1]
+    return None
+
+
+def _table_names_for_schema(
+    inspector: object,
+    schema_name: str | None,
+    included_table_names: list[str] | None,
+) -> list[str]:
+    if included_table_names is not None:
+        return list(included_table_names)
+    return sorted(inspector.get_table_names(**_schema_kw(schema_name)))
+
+
+def _schema_include_tables_by_database(
+    include_tables: list[str],
+    configured_databases: list[str],
+) -> dict[str | None, list[str]] | None:
+    if not include_tables:
+        return None
+
+    configured_lookup = {database.casefold(): database for database in configured_databases}
+    default_database = configured_databases[0] if configured_databases else None
+    grouped: dict[str | None, list[str]] = {database: [] for database in configured_databases}
+    seen: dict[str | None, set[str]] = {database: set() for database in configured_databases}
+
+    for raw_identifier in include_tables:
+        parsed = _split_table_identifier(raw_identifier)
+        if parsed is None:
+            continue
+        database_name, table_name = parsed
+        target_database = default_database if database_name is None else configured_lookup.get(database_name.casefold())
+        if target_database is None:
+            continue
+        table_key = table_name.casefold()
+        if table_key in seen[target_database]:
+            continue
+        seen[target_database].add(table_key)
+        grouped[target_database].append(table_name)
+
+    return grouped
+
+
 async def sync_schema_metadata() -> SchemaCatalog:
+    settings = get_settings()
     enrichment = load_schema_enrichment()
     value_mappings = load_value_mappings()
 
     async with engine.connect() as connection:
-        database_name = connection.engine.url.database or "unknown"
+        default_database = connection.engine.url.database or "unknown"
+        configured_databases = settings.effective_database_names or [default_database]
+        driver_name = connection.engine.url.drivername.lower()
+        supports_named_schemas = "mysql" in driver_name or "mariadb" in driver_name
+        expose_table_database = supports_named_schemas and bool(settings.database_names)
+        included_tables_by_database = _schema_include_tables_by_database(
+            settings.effective_schema_include_tables,
+            configured_databases,
+        )
 
         def inspect_schema(sync_connection):
             inspector = inspect(sync_connection)
-            table_names = sorted(inspector.get_table_names())
-            columns_by_table: dict[str, list[dict[str, object]]] = {}
-            primary_keys_by_table: dict[str, list[str]] = {}
-            foreign_keys: list[dict[str, object]] = []
-            indexes_by_table: dict[str, list[str]] = {}
-            comments_by_table: dict[str, str | None] = {}
+            inspected: dict[str | None, dict[str, object]] = {}
+            for database_name in configured_databases:
+                schema_name = database_name if supports_named_schemas and database_name != "unknown" else None
+                included_table_names = (
+                    None if included_tables_by_database is None else included_tables_by_database.get(database_name, [])
+                )
+                table_names = _table_names_for_schema(inspector, schema_name, included_table_names)
+                columns_by_table: dict[str, list[dict[str, object]]] = {}
+                primary_keys_by_table: dict[str, list[str]] = {}
+                foreign_keys: list[dict[str, object]] = []
+                indexes_by_table: dict[str, list[str]] = {}
+                comments_by_table: dict[str, str | None] = {}
 
-            for table_name in table_names:
-                primary_key = inspector.get_pk_constraint(table_name) or {}
-                constrained_columns = primary_key.get("constrained_columns") or []
-                primary_keys_by_table[table_name] = [str(column) for column in constrained_columns]
-                columns_by_table[table_name] = list(inspector.get_columns(table_name))
-                try:
-                    table_comment = inspector.get_table_comment(table_name) or {}
-                except NotImplementedError:
-                    table_comment = {}
-                comments_by_table[table_name] = str(table_comment.get("text") or "").strip() or None
-                indexes_by_table[table_name] = [
-                    str(index.get("name"))
-                    for index in inspector.get_indexes(table_name)
-                    if index.get("name")
-                ]
-                for foreign_key in inspector.get_foreign_keys(table_name):
-                    referred_table = foreign_key.get("referred_table")
-                    constrained = foreign_key.get("constrained_columns") or []
-                    referred = foreign_key.get("referred_columns") or []
-                    if not referred_table or not constrained or not referred:
-                        continue
-                    foreign_keys.append(
-                        {
-                            "from_table": table_name,
-                            "from_column": str(constrained[0]),
-                            "to_table": str(referred_table),
-                            "to_column": str(referred[0]),
-                        }
-                    )
+                for table_name in table_names:
+                    primary_key = inspector.get_pk_constraint(table_name, **_schema_kw(schema_name)) or {}
+                    constrained_columns = primary_key.get("constrained_columns") or []
+                    primary_keys_by_table[table_name] = [str(column) for column in constrained_columns]
+                    columns_by_table[table_name] = list(inspector.get_columns(table_name, **_schema_kw(schema_name)))
+                    try:
+                        table_comment = inspector.get_table_comment(table_name, **_schema_kw(schema_name)) or {}
+                    except NotImplementedError:
+                        table_comment = {}
+                    comments_by_table[table_name] = str(table_comment.get("text") or "").strip() or None
+                    indexes_by_table[table_name] = [
+                        str(index.get("name"))
+                        for index in inspector.get_indexes(table_name, **_schema_kw(schema_name))
+                        if index.get("name")
+                    ]
+                    for foreign_key in inspector.get_foreign_keys(table_name, **_schema_kw(schema_name)):
+                        referred_table = foreign_key.get("referred_table")
+                        constrained = foreign_key.get("constrained_columns") or []
+                        referred = foreign_key.get("referred_columns") or []
+                        if not referred_table or not constrained or not referred:
+                            continue
+                        referred_schema = foreign_key.get("referred_schema") or schema_name
+                        foreign_keys.append(
+                            {
+                                "from_database": schema_name,
+                                "from_table": table_name,
+                                "from_column": str(constrained[0]),
+                                "to_database": str(referred_schema) if referred_schema else None,
+                                "to_table": str(referred_table),
+                                "to_column": str(referred[0]),
+                            }
+                        )
 
-            return table_names, columns_by_table, primary_keys_by_table, foreign_keys, indexes_by_table, comments_by_table
+                inspected[schema_name] = {
+                    "table_names": table_names,
+                    "columns_by_table": columns_by_table,
+                    "primary_keys_by_table": primary_keys_by_table,
+                    "foreign_keys": foreign_keys,
+                    "indexes_by_table": indexes_by_table,
+                    "comments_by_table": comments_by_table,
+                }
+            return inspected
 
-        (
-            table_names,
-            raw_columns_by_table,
-            primary_keys_by_table,
-            foreign_keys,
-            indexes_by_table,
-            comments_by_table,
-        ) = await connection.run_sync(inspect_schema)
+        inspected_databases = await connection.run_sync(inspect_schema)
 
     tables: list[SchemaTable] = []
-    for table_name in table_names:
-        columns: list[SchemaColumn] = []
-        primary_keys = primary_keys_by_table.get(table_name, [])
-        for raw_column in raw_columns_by_table.get(table_name, []):
-            column_name = str(raw_column.get("name", ""))
-            raw_type = raw_column.get("type")
-            raw_comment = raw_column.get("comment")
-            comment_value = None
-            if raw_comment is not None:
-                raw_comment_text = str(raw_comment).strip()
-                if raw_comment_text:
-                    comment_value = raw_comment_text
+    for database_name, metadata in inspected_databases.items():
+        table_names = metadata["table_names"]
+        raw_columns_by_table = metadata["columns_by_table"]
+        primary_keys_by_table = metadata["primary_keys_by_table"]
+        indexes_by_table = metadata["indexes_by_table"]
+        comments_by_table = metadata["comments_by_table"]
+        for table_name in table_names:
+            columns: list[SchemaColumn] = []
+            primary_keys = primary_keys_by_table.get(table_name, [])
+            for raw_column in raw_columns_by_table.get(table_name, []):
+                column_name = str(raw_column.get("name", ""))
+                raw_type = raw_column.get("type")
+                raw_comment = raw_column.get("comment")
+                comment_value = None
+                if raw_comment is not None:
+                    raw_comment_text = str(raw_comment).strip()
+                    if raw_comment_text:
+                        comment_value = raw_comment_text
 
-            fallback_mapping = get_fallback_mapping_for_column(
-                value_mappings,
-                table_name=table_name,
-                column_name=column_name,
-            )
-            column_enrichment = get_column_enrichment(
-                enrichment,
-                table_name=table_name,
-                column_name=column_name,
-            )
-            columns.append(
-                SchemaColumn(
-                    name=column_name,
-                    data_type=str(raw_type or "unknown"),
-                    nullable=bool(raw_column.get("nullable", True)),
-                    is_primary_key=column_name in primary_keys,
-                    default=str(raw_column.get("default")) if raw_column.get("default") is not None else None,
-                    description=merge_column_description(
-                        db_description=comment_value,
-                        fallback_mapping=fallback_mapping,
+                fallback_mapping = get_fallback_mapping_for_column(
+                    value_mappings,
+                    table_name=table_name,
+                    column_name=column_name,
+                )
+                column_enrichment = get_column_enrichment(
+                    enrichment,
+                    table_name=table_name,
+                    column_name=column_name,
+                )
+                columns.append(
+                    SchemaColumn(
+                        name=column_name,
+                        data_type=str(raw_type or "unknown"),
+                        nullable=bool(raw_column.get("nullable", True)),
+                        is_primary_key=column_name in primary_keys,
+                        default=str(raw_column.get("default")) if raw_column.get("default") is not None else None,
+                        description=merge_column_description(
+                            db_description=comment_value,
+                            fallback_mapping=fallback_mapping,
+                        ),
+                        business_terms=column_enrichment.business_terms,
+                        semantic_role=column_enrichment.semantic_role,
+                    )
+                )
+
+            table_enrichment = get_table_enrichment(enrichment, table_name)
+            table_description = comments_by_table.get(table_name) or TABLE_DESCRIPTIONS.get(table_name)
+            tables.append(
+                SchemaTable(
+                    name=table_name,
+                    database=database_name if expose_table_database else None,
+                    description=table_description,
+                    aliases=table_enrichment.aliases,
+                    business_terms=table_enrichment.business_terms,
+                    columns=columns,
+                    primary_keys=primary_keys,
+                    indexes=indexes_by_table.get(table_name, []),
+                    searchable_terms=_build_search_terms(
+                        table_name,
+                        database_name,
+                        table_description,
+                        table_enrichment.aliases,
+                        table_enrichment.business_terms,
+                        columns,
                     ),
-                    business_terms=column_enrichment.business_terms,
-                    semantic_role=column_enrichment.semantic_role,
                 )
             )
 
-        table_enrichment = get_table_enrichment(enrichment, table_name)
-        table_description = comments_by_table.get(table_name) or TABLE_DESCRIPTIONS.get(table_name)
-        tables.append(
-            SchemaTable(
-                name=table_name,
-                description=table_description,
-                aliases=table_enrichment.aliases,
-                business_terms=table_enrichment.business_terms,
-                columns=columns,
-                primary_keys=primary_keys,
-                indexes=indexes_by_table.get(table_name, []),
-                searchable_terms=_build_search_terms(
-                    table_name,
-                    table_description,
-                    table_enrichment.aliases,
-                    table_enrichment.business_terms,
-                    columns,
-                ),
-            )
-        )
-
-    table_name_set = {table.name for table in tables}
+    table_identity_set = {(table.database, table.name) for table in tables}
     relations: list[SchemaRelation] = []
-    seen_relations: set[tuple[str, str, str, str]] = set()
+    seen_relations: set[tuple[str | None, str, str, str | None, str, str]] = set()
 
-    for foreign_key in foreign_keys:
-        relation_key = (
-            str(foreign_key["from_table"]),
-            str(foreign_key["from_column"]),
-            str(foreign_key["to_table"]),
-            str(foreign_key["to_column"]),
-        )
-        seen_relations.add(relation_key)
-        relation_enrichment = get_relation_enrichment(
-            enrichment,
-            from_table=relation_key[0],
-            from_column=relation_key[1],
-            to_table=relation_key[2],
-            to_column=relation_key[3],
-        )
-        relations.append(
-            SchemaRelation(
-                from_table=relation_key[0],
-                from_column=relation_key[1],
-                to_table=relation_key[2],
-                to_column=relation_key[3],
-                relation_type="foreign_key",
-                confidence=relation_enrichment.confidence,
-                join_hint=relation_enrichment.join_hint,
+    for metadata in inspected_databases.values():
+        for foreign_key in metadata["foreign_keys"]:
+            relation_key = (
+                foreign_key["from_database"],
+                str(foreign_key["from_table"]),
+                str(foreign_key["from_column"]),
+                foreign_key["to_database"],
+                str(foreign_key["to_table"]),
+                str(foreign_key["to_column"]),
             )
-        )
+            from_identity = (relation_key[0] if expose_table_database else None, relation_key[1])
+            to_identity = (relation_key[3] if expose_table_database else None, relation_key[4])
+            if from_identity not in table_identity_set or to_identity not in table_identity_set:
+                continue
+            seen_relations.add(relation_key)
+            relation_enrichment = get_relation_enrichment(
+                enrichment,
+                from_table=relation_key[1],
+                from_column=relation_key[2],
+                to_table=relation_key[4],
+                to_column=relation_key[5],
+            )
+            relations.append(
+                SchemaRelation(
+                    from_database=relation_key[0] if expose_table_database else None,
+                    from_table=relation_key[1],
+                    from_column=relation_key[2],
+                    to_database=relation_key[3] if expose_table_database else None,
+                    to_table=relation_key[4],
+                    to_column=relation_key[5],
+                    relation_type="foreign_key",
+                    confidence=relation_enrichment.confidence,
+                    join_hint=relation_enrichment.join_hint,
+                )
+            )
 
-    for from_table, from_column, to_table, to_column, relation_type in RELATION_HINTS:
-        if from_table not in table_name_set or to_table not in table_name_set:
-            continue
-        relation_key = (from_table, from_column, to_table, to_column)
-        if relation_key in seen_relations:
-            continue
-        relation_enrichment = get_relation_enrichment(
-            enrichment,
-            from_table=from_table,
-            from_column=from_column,
-            to_table=to_table,
-            to_column=to_column,
-        )
-        relations.append(
-            SchemaRelation(
+    for database_name in inspected_databases:
+        relation_database = database_name if expose_table_database else None
+        for from_table, from_column, to_table, to_column, relation_type in RELATION_HINTS:
+            if (relation_database, from_table) not in table_identity_set or (relation_database, to_table) not in table_identity_set:
+                continue
+            relation_key = (relation_database, from_table, from_column, relation_database, to_table, to_column)
+            if relation_key in seen_relations:
+                continue
+            relation_enrichment = get_relation_enrichment(
+                enrichment,
                 from_table=from_table,
                 from_column=from_column,
                 to_table=to_table,
                 to_column=to_column,
-                relation_type=relation_type,
-                confidence=relation_enrichment.confidence,
-                join_hint=relation_enrichment.join_hint,
             )
-        )
+            relations.append(
+                SchemaRelation(
+                    from_database=database_name if expose_table_database else None,
+                    from_table=from_table,
+                    from_column=from_column,
+                    to_database=database_name if expose_table_database else None,
+                    to_table=to_table,
+                    to_column=to_column,
+                    relation_type=relation_type,
+                    confidence=relation_enrichment.confidence,
+                    join_hint=relation_enrichment.join_hint,
+                )
+            )
 
     catalog = SchemaCatalog(
-        database=database_name,
+        database=",".join(configured_databases) or default_database,
         tables=tables,
         relations=relations,
         synced_at=datetime.now(timezone.utc).isoformat(),
     )
-    settings = get_settings()
     return attach_business_semantics(
         catalog,
         settings.business_semantic_override_path,
         yaml_enabled=settings.business_semantic_yaml_enabled,
-        database_url=settings.database_url,
+        database_url=settings.schema_scope_key,
         yaml_dir=settings.business_semantic_yaml_dir,
     )

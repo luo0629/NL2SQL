@@ -33,7 +33,7 @@ def extract_value_predicates(sql: str, catalog: SchemaCatalog) -> list[ValuePred
     except (errors.ParseError, errors.TokenError):
         return []
 
-    table_lookup = {table.name.lower(): table for table in catalog.tables}
+    table_lookup = _build_table_lookup(catalog.tables)
     alias_to_table = _table_aliases(tree, table_lookup)
     where = tree.find(exp.Where)
     if where is None or where.this is None:
@@ -59,17 +59,39 @@ def build_missing_value_prompt(question: str, issues: list[MissingValueIssue]) -
     return "\n".join(lines)
 
 
+def _build_table_lookup(tables: list[SchemaTable]) -> dict[str, SchemaTable]:
+    lookup: dict[str, SchemaTable] = {}
+    counts: dict[str, int] = {}
+    for table in tables:
+        counts[table.name.lower()] = counts.get(table.name.lower(), 0) + 1
+    for table in tables:
+        lookup[table.qualified_name.lower()] = table
+        if counts[table.name.lower()] == 1:
+            lookup[table.name.lower()] = table
+    return lookup
+
+
+def _table_sql_name(table_expr: exp.Table) -> str:
+    table_name = table_expr.name
+    database_name = table_expr.args.get("db")
+    if database_name is not None:
+        database_text = str(getattr(database_name, "this", database_name))
+        if database_text:
+            return f"{database_text}.{table_name}"
+    return table_name
+
+
 def _table_aliases(tree: exp.Expression, table_lookup: dict[str, SchemaTable]) -> dict[str, str]:
     aliases: dict[str, str] = {}
     for table_expr in tree.find_all(exp.Table):
-        table_name = table_expr.name
+        table_name = _table_sql_name(table_expr)
         real_table = table_lookup.get(table_name.lower())
         if real_table is None:
             continue
-        aliases[table_name.lower()] = real_table.name
+        aliases[table_name.lower()] = real_table.qualified_name
         alias = table_expr.alias
         if alias:
-            aliases[alias.lower()] = real_table.name
+            aliases[alias.lower()] = real_table.qualified_name
     return aliases
 
 
@@ -144,7 +166,7 @@ def _predicate_from_parts(
     if not _should_validate_column(column):
         return None
 
-    return ValuePredicate(table=table.name, column=column.name, value=value, operator=operator)
+    return ValuePredicate(table=table.qualified_name, column=column.name, value=value, operator=operator)
 
 
 def _resolve_column(
@@ -154,9 +176,15 @@ def _resolve_column(
 ) -> tuple[SchemaTable, SchemaColumn] | None:
     column_name = column_expr.name
     qualifier = column_expr.table
+    qualifier_db = column_expr.args.get("db")
+    if qualifier and qualifier_db is not None:
+        qualifier_db_text = str(getattr(qualifier_db, "this", qualifier_db))
+        if qualifier_db_text:
+            qualifier = f"{qualifier_db_text}.{qualifier}"
 
     if qualifier:
-        table_name = alias_to_table.get(qualifier.lower()) or qualifier
+        qualifier_key = qualifier.lower()
+        table_name = alias_to_table.get(qualifier_key) or qualifier
         table = table_lookup.get(table_name.lower())
         if table is None:
             return None

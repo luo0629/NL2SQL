@@ -89,6 +89,34 @@ async def test_rag_service_schema_catalog_cache_is_keyed_by_database_url(monkeyp
 
 
 @pytest.mark.anyio
+async def test_rag_service_schema_catalog_cache_is_keyed_by_schema_include_tables(monkeypatch: pytest.MonkeyPatch) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("SCHEMA_CACHE_TTL_SECONDS", "300")
+    monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///./same.db")
+
+    calls: list[list[str]] = []
+
+    async def fake_sync_schema_metadata() -> SchemaCatalog:
+        include_tables = get_settings().effective_schema_include_tables
+        calls.append(include_tables)
+        return SchemaCatalog(database=",".join(include_tables), tables=[], relations=[], synced_at="now")
+
+    monkeypatch.setattr(rag_service, "sync_schema_metadata", fake_sync_schema_metadata)
+    rag_service._catalog_cache.clear()
+    rag_service._catalog_cached_at.clear()
+
+    monkeypatch.setenv("SCHEMA_INCLUDE_TABLES", "main.orders")
+    get_settings.cache_clear()
+    await RagService().retrieve_relevant_schema("查询订单")
+
+    monkeypatch.setenv("SCHEMA_INCLUDE_TABLES", "main.customers")
+    get_settings.cache_clear()
+    await RagService().retrieve_relevant_schema("查询客户")
+
+    assert calls == [["main.orders"], ["main.customers"]]
+
+
+@pytest.mark.anyio
 async def test_rag_service_cache_stores_business_semantics_per_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
     get_settings.cache_clear()
     monkeypatch.setenv("SCHEMA_CACHE_TTL_SECONDS", "300")
