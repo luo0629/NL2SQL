@@ -27,14 +27,22 @@ from app.validator.sql_validator import SQLValidator
 logger = logging.getLogger(__name__)
 
 _compiled_graph = None
-_graph_executor_key: tuple | None = None
+_graph_dependency_key: tuple[int, int, int] | None = None
 
 
 def reset_agent_graph() -> None:
     """重置单例 Graph，用于测试或依赖变更时。"""
-    global _compiled_graph, _graph_executor_key
+    global _compiled_graph, _graph_dependency_key
     _compiled_graph = None
-    _graph_executor_key = None
+    _graph_dependency_key = None
+
+
+def _build_graph_dependency_key(
+    llm_service: LLMService,
+    validator: SQLValidator,
+    executor: SQLExecutor,
+) -> tuple[int, int, int]:
+    return (id(llm_service), id(validator), id(executor))
 
 
 def _after_sql_validation(state: object) -> str:
@@ -257,26 +265,18 @@ def get_agent_graph(
     llm_service: LLMService,
     validator: SQLValidator,
     executor: SQLExecutor,
-    catalog: SchemaCatalog | None = None,
 ):
-    """获取单例 Graph，首次调用时编译，后续复用。executor 变更时重新编译。"""
-    global _compiled_graph, _graph_executor_key
-    executor_key = (
-        id(rag_service),
-        rag_service.__class__.__qualname__,
-        id(llm_service),
-        llm_service.__class__.__qualname__,
-        id(validator),
-        validator.__class__.__qualname__,
-        id(executor),
-        executor.__class__.__qualname__,
-        id(catalog),
-    )
-    if _compiled_graph is None or _graph_executor_key != executor_key:
+    """获取单例 Graph，依赖实例变更时重新编译。"""
+    global _compiled_graph, _graph_dependency_key
+    dependency_key = _build_graph_dependency_key(llm_service, validator, executor)
+    if _compiled_graph is None or _graph_dependency_key != dependency_key:
         _compiled_graph = build_agent_graph(
-            rag_service, llm_service, validator, executor, catalog
+            rag_service,
+            llm_service,
+            validator,
+            executor,
         )
-        _graph_executor_key = executor_key
+        _graph_dependency_key = dependency_key
     return _compiled_graph
 
 
