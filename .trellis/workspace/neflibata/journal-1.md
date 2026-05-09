@@ -303,3 +303,36 @@ Added SchemaWatcher that polls INFORMATION_SCHEMA.COLUMNS every 30s to detect DD
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: YAML Config Refactor - Split configs by responsibility
+
+**Date**: 2026-05-09
+**Task**: YAML Config Refactor - Split configs by responsibility
+**Branch**: `main`
+
+### Summary
+
+Split all YAML configs into 6 independent files under backend/config/ (table_relations, field_semantics, field_examples, enum_mappings, business_terms, few_shot_samples). Created config_loader.py with AppConfig class and get_app_config() singleton. Migrated schema_enrichment.py hardcoded data to YAML files with business_terms and semantic_role per field. Fixed empty-list override merge bug. All 113 tests pass.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `96edafd` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
