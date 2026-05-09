@@ -18,16 +18,21 @@ The graph does more than generate or reject SQL.
 
 Real flow in `app/agent/graph.py`:
 
+- `load_schema_catalog` runs inside the graph and can terminate early with a structured error state
 - `intent_parser` feeds `schema_retriever`
 - `schema_retriever` feeds `sql_generator`
 - `sql_generator` feeds `sql_validator`
-- `_should_retry_or_execute(...)` decides between:
+- `_after_sql_validation(...)` decides between:
   - retry through `sql_generator` when `validation_error` exists and `retry_count < max_retries`
-  - continue to `sql_executor` when validation passed
+  - continue to `value_validator` when SQL validation passed
+  - short-circuit to `result_formatter` when retries are exhausted
+- `_after_value_validation(...)` decides between:
+  - retry through `sql_generator` when value validation fails and retry budget remains
+  - continue to `sql_executor` when value validation passed
   - short-circuit to `result_formatter` when retries are exhausted
 - `sql_executor` always feeds `result_formatter`
 
-This means validation failures are recoverable during generation, but execution failures are formatted as controlled responses rather than retried indefinitely.
+This means schema-load failures are graph-owned, validation failures are recoverable during generation, and execution failures are formatted as controlled responses rather than retried indefinitely.
 
 ---
 

@@ -57,7 +57,7 @@ class AgentService:
                 elapsed_ms,
             )
             state = {
-                "sql": "",
+                "generated_sql": "",
                 "status": "error",
                 "rows": [],
                 "columns": [],
@@ -75,7 +75,7 @@ class AgentService:
             }
 
         status = state.get("status", "mock")
-        sql = state.get("sql") or ("" if status == "error" else "SELECT 1;")
+        sql = state.get("generated_sql") or ("" if status == "error" else "SELECT 1;")
         explanation = (
             state.get("explanation") or "当前返回的是一个教学型 SQLAgent 结果。"
         )

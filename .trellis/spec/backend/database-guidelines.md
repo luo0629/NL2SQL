@@ -179,10 +179,10 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 
 ### 2. Signatures
 
-- Graph main path: `intent_parser -> schema_retriever -> sql_generator -> sql_validator -> sql_executor -> result_formatter`.
+- Graph main path: `load_schema_catalog -> intent_parser -> schema_retriever -> sql_generator -> sql_validator -> value_validator -> sql_executor -> result_formatter`, with retry branches from both validators back to `sql_generator`.
 - Intent state fields: `AgentState.intent: str`, `AgentState.relevant_tables: list[str]`.
-- Schema state field: `AgentState.schema_context: list[str]`.
-- SQL state fields: `AgentState.generated_sql: str`, `AgentState.sql: str`, `AgentState.validation_error: str`, `AgentState.previous_sql: str`, `AgentState.retry_count: int`, `AgentState.max_retries: int`.
+- Schema state fields: `AgentState.schema_catalog: SchemaCatalog | None`, `AgentState.schema_context: str`.
+- SQL state fields: `AgentState.generated_sql: str`, `AgentState.validation_error: str`, `AgentState.previous_sql: str`, `AgentState.retry_count: int`, `AgentState.max_retries: int`.
 - Execution path: `SQLExecutor.execute(sql: str, params: list[object] | None = None, max_rows: int | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
 - EXPLAIN path: `SQLExecutor.explain(sql: str, params: list[object] | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
 

@@ -1,10 +1,14 @@
 from typing import Any, Literal, TypedDict
 
+from app.rag.schema_models import SchemaCatalog
+
 
 class AgentState(TypedDict, total=False):
-    # 用户原始输入，question 保持 API/测试兼容，user_input 是新链路主字段。
-    question: str
+    # 用户原始输入。
     user_input: str
+    # schema 加载输出：真实 schema catalog 与加载错误。
+    schema_catalog: SchemaCatalog | None
+    schema_catalog_error: str
     # intent_parser 输出：自然语言意图 + 真实 schema 中筛选出的相关表。
     intent: str
     relevant_tables: list[str]
@@ -15,7 +19,7 @@ class AgentState(TypedDict, total=False):
     semantic_signals: list[dict[str, Any]]
     # sql_generator 输出。
     generated_sql: str
-    sql: str
+    previous_sql: str
     sql_params: list[Any]
     # sql_validator 输出与重试控制。
     validation_error: str
@@ -24,7 +28,6 @@ class AgentState(TypedDict, total=False):
     retry_count: int
     max_retries: int
     # sql_executor 输出。
-    query_result: list[dict[str, Any]]
     rows: list[dict[str, Any]]
     columns: list[str]
     row_count: int

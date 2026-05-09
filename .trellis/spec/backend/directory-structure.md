@@ -63,9 +63,9 @@ For any change in the main NL2SQL flow, trace the whole chain:
 5. `app/database/executor.py` executes validated SQL
 6. `app/schemas/query.py` defines the API contract returned to the frontend
 
-The current graph is the design-driven six-node NL2SQL flow. The real node order is:
+The current graph is a graph-owned NL2SQL flow with a schema-load prelude followed by the six core NL2SQL nodes. The real node order is:
 
-`intent_parser` → `schema_retriever` → `sql_generator` → `sql_validator` → (`sql_generator` retry loop or `sql_executor`) → `result_formatter`
+`load_schema_catalog` → `intent_parser` → `schema_retriever` → `sql_generator` → `sql_validator` → (`sql_generator` retry loop or `value_validator`) → (`sql_generator` retry loop or `sql_executor`) → `result_formatter`
 
 Legacy `SemanticQuery`, SQL plan rendering, schema linking, value linking, join path planning, business semantic brief, SQL repair, and few-shot manager modules are no longer part of the main path and should not be reintroduced without a new design decision.
 

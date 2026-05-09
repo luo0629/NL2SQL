@@ -120,6 +120,14 @@ async def _ainvoke_model_json(
     return payload, None
 
 
+def _question_text(state: AgentState) -> str:
+    return (state.get("user_input") or state.get("question") or "").strip()
+
+
+def _current_sql(state: AgentState) -> str:
+    return state.get("generated_sql") or state.get("sql") or ""
+
+
 def _quote_identifier(identifier: str) -> str:
     return "`" + identifier.replace("`", "``") + "`"
 
@@ -526,7 +534,7 @@ def _build_intent_result(
     source: str,
     llm_error: str | None = None,
 ) -> AgentState:
-    question = (state.get("user_input") or state.get("question") or "").strip()
+    question = _question_text(state)
     table_names = [_table_identity(table) for table in _catalog_tables(catalog)]
     table_lookup = _build_table_lookup(_catalog_tables(catalog))
     fallback_tables = _fallback_relevant_tables(question, catalog)
@@ -558,7 +566,6 @@ def _build_intent_result(
         }
     return {
         "user_input": question,
-        "question": question,
         "intent": intent,
         "relevant_tables": relevant_tables,
         "available_tables": table_names,
@@ -568,7 +575,7 @@ def _build_intent_result(
 
 
 def intent_parser(state: AgentState, llm_service: LLMService, catalog: SchemaCatalog | None = None) -> AgentState:
-    question = (state.get("user_input") or state.get("question") or "").strip()
+    question = _question_text(state)
     table_names = [_table_identity(table) for table in _catalog_tables(catalog)]
     model = llm_service.build_chat_model()
     payload: dict[str, Any] | None = None
@@ -580,7 +587,7 @@ def intent_parser(state: AgentState, llm_service: LLMService, catalog: SchemaCat
 
 
 async def async_intent_parser(state: AgentState, llm_service: LLMService, catalog: SchemaCatalog | None = None) -> AgentState:
-    question = (state.get("user_input") or state.get("question") or "").strip()
+    question = _question_text(state)
     table_names = [_table_identity(table) for table in _catalog_tables(catalog)]
     model = llm_service.build_chat_model()
     payload: dict[str, Any] | None = None
@@ -779,7 +786,7 @@ def schema_retriever(state: AgentState, catalog: SchemaCatalog | None = None) ->
     semantic_context = _render_semantic_context(
         _catalog_semantics(catalog),
         selected_table_names,
-        state.get("user_input") or state.get("question") or "",
+        _question_text(state),
     )
     debug_trace = dict(state.get("debug_trace", {}))
     debug_trace["schema_retriever"] = {
@@ -799,7 +806,7 @@ def schema_retriever(state: AgentState, catalog: SchemaCatalog | None = None) ->
 
 def _build_sql_generation_prompt(state: AgentState) -> str:
     retry_count = state.get("retry_count", 0)
-    previous_sql = state.get("generated_sql") or state.get("sql") or ""
+    previous_sql = state.get("generated_sql") or state.get("previous_sql") or ""
     validation_error = state.get("validation_error", "")
     parts = [
         "你是 MySQL NL2SQL 生成器。只输出一条 SQL，不要解释，不要 Markdown。",
@@ -813,7 +820,7 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
         "id、*_id、create_user、update_user、create_time、update_time 等 output=internal/join/filter/audit 字段仍可用于 JOIN、WHERE、ORDER BY 和校验，但除非用户明确询问 ID/编号/code/no/number 或没有更可读字段，否则不要放进 SELECT 列表。",
         "如需要 LIMIT，必须同时给出稳定 ORDER BY。",
         "默认添加合理 LIMIT 200，除非用户明确要求更小。",
-        f"用户问题：{state.get('user_input') or state.get('question') or ''}",
+        f"用户问题：{_question_text(state)}",
         f"意图：{state.get('intent', '')}",
         f"相关表：{', '.join(state.get('relevant_tables', []))}",
         "business_semantic_context:",
@@ -865,9 +872,10 @@ def _build_sql_generator_result(
 ) -> AgentState:
     used_fallback = False
     status = "ready"
+    previous_sql = _current_sql(state)
     if not generated_sql:
         generated_sql = build_fallback_sql(
-            state.get("user_input") or state.get("question") or "",
+            _question_text(state),
             catalog,
             state.get("relevant_tables", []),
         )
@@ -883,13 +891,10 @@ def _build_sql_generator_result(
     }
     return {
         "generated_sql": generated_sql,
-        "sql": generated_sql,
+        "previous_sql": previous_sql,
         "sql_params": [],
         "status": cast(Any, status),
         "used_fallback": used_fallback,
-        "validation_error": "",
-        "validation_errors": [],
-        "validation_issues": [],
         "debug_trace": debug_trace,
         "explanation": "已基于真实 schema context 直接生成 MySQL 只读 SQL。",
     }
@@ -928,7 +933,7 @@ def _should_run_mysql_explain() -> bool:
 
 
 async def sql_validator(state: AgentState, validator: SQLValidator, executor: SQLExecutor) -> AgentState:
-    sql = state.get("sql") or state.get("generated_sql") or ""
+    sql = _current_sql(state)
     retry_count = state.get("retry_count", 0)
     debug_trace = dict(state.get("debug_trace", {}))
     settings = get_settings()
@@ -962,6 +967,12 @@ async def sql_validator(state: AgentState, validator: SQLValidator, executor: SQ
 
     next_retry_count = retry_count + 1
     elapsed_ms = (time.monotonic() - started_at) * 1000
+    issue = {
+        "level": "error",
+        "code": "SQL_VALIDATION_OR_EXPLAIN_FAILED",
+        "message": message,
+        "repairable": next_retry_count < state.get("max_retries", 3),
+    }
     debug_trace["sql_validator"] = {
         "passed": False,
         "retry_count": retry_count,
@@ -973,15 +984,8 @@ async def sql_validator(state: AgentState, validator: SQLValidator, executor: SQ
     logger.info("agent.sql_validator.end passed=false duration_ms=%.2f error=%s", elapsed_ms, message)
     return {
         "validation_error": message,
-        "validation_errors": [message],
-        "validation_issues": [
-            {
-                "level": "error",
-                "code": "SQL_VALIDATION_OR_EXPLAIN_FAILED",
-                "message": message,
-                "repairable": next_retry_count < state.get("max_retries", 3),
-            }
-        ],
+        "validation_errors": [*state.get("validation_errors", []), message],
+        "validation_issues": [*state.get("validation_issues", []), issue],
         "retry_count": next_retry_count,
         "debug_trace": debug_trace,
         "explanation": f"SQL 验证未通过：{message}",
@@ -989,7 +993,7 @@ async def sql_validator(state: AgentState, validator: SQLValidator, executor: SQ
 
 
 async def value_validator(state: AgentState, executor: SQLExecutor, catalog: SchemaCatalog | None = None) -> AgentState:
-    sql = state.get("sql") or state.get("generated_sql") or ""
+    sql = _current_sql(state)
     debug_trace = dict(state.get("debug_trace", {}))
     if catalog is None or not hasattr(executor, "value_exists") or not hasattr(executor, "suggest_similar_values"):
         debug_trace["value_validator"] = {"status": "skipped"}
@@ -1032,7 +1036,13 @@ async def value_validator(state: AgentState, executor: SQLExecutor, catalog: Sch
 
     retry_count = state.get("retry_count", 0)
     next_retry_count = retry_count + 1
-    message = build_missing_value_prompt(state.get("user_input") or state.get("question") or "", issues)
+    message = build_missing_value_prompt(_question_text(state), issues)
+    issue = {
+        "level": "error",
+        "code": "VALUE_NOT_FOUND",
+        "message": message,
+        "repairable": next_retry_count < state.get("max_retries", 3),
+    }
     debug_trace["value_validator"] = {
         "status": "failed",
         "predicate_count": len(predicates),
@@ -1042,15 +1052,8 @@ async def value_validator(state: AgentState, executor: SQLExecutor, catalog: Sch
     }
     return {
         "validation_error": message,
-        "validation_errors": [message],
-        "validation_issues": [
-            {
-                "level": "error",
-                "code": "VALUE_NOT_FOUND",
-                "message": message,
-                "repairable": next_retry_count < state.get("max_retries", 3),
-            }
-        ],
+        "validation_errors": [*state.get("validation_errors", []), message],
+        "validation_issues": [*state.get("validation_issues", []), issue],
         "retry_count": next_retry_count,
         "debug_trace": debug_trace,
         "explanation": message,
@@ -1058,7 +1061,7 @@ async def value_validator(state: AgentState, executor: SQLExecutor, catalog: Sch
 
 
 async def sql_executor(state: AgentState, executor: SQLExecutor) -> AgentState:
-    sql = state.get("sql") or state.get("generated_sql") or ""
+    sql = _current_sql(state)
     started_at = time.monotonic()
     try:
         settings = get_settings()
@@ -1087,7 +1090,6 @@ async def sql_executor(state: AgentState, executor: SQLExecutor) -> AgentState:
         )
         return {
             "status": "error" if is_error else "ready",
-            "query_result": [] if is_error else result.rows,
             "rows": [] if is_error else result.rows,
             "columns": [] if is_error else result.columns,
             "row_count": 0 if is_error else result.row_count,
@@ -1109,7 +1111,6 @@ async def sql_executor(state: AgentState, executor: SQLExecutor) -> AgentState:
         }
         return {
             "status": "error",
-            "query_result": [],
             "rows": [],
             "columns": [],
             "row_count": 0,
@@ -1127,9 +1128,9 @@ def _build_formatter_prompt(state: AgentState) -> str:
         [
             "你是 SQL 查询结果解读助手。用中文自然语言直接回答用户问题，不要泄露内部错误细节。",
             "可以简要提到结果行数；不要隐藏 SQL 是否生成，SQL 会由系统单独展示。",
-            f"用户问题：{state.get('user_input') or state.get('question') or ''}",
+            f"用户问题：{_question_text(state)}",
             f"意图：{state.get('intent', '')}",
-            f"SQL：{state.get('sql', '')}",
+            f"SQL：{state.get('generated_sql', '')}",
             f"执行摘要：{state.get('execution_summary', '')}",
             f"行数：{state.get('row_count', 0)}",
             f"结果预览：{json.dumps(preview_rows, ensure_ascii=False, default=str)}",
@@ -1196,7 +1197,7 @@ def _build_formatter_result(
         "debug_trace": debug_trace,
     }
     if status == "error":
-        result.update({"rows": [], "columns": [], "row_count": 0, "query_result": []})
+        result.update({"rows": [], "columns": [], "row_count": 0})
     return result
 
 

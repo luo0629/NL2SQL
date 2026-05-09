@@ -353,7 +353,7 @@ async def test_agent_graph_runs_six_node_pipeline_and_returns_rows() -> None:
     assert state["intent"]
     assert state["relevant_tables"]
     assert state["schema_context"]
-    assert state["sql"].upper().startswith("SELECT")
+    assert state["generated_sql"].upper().startswith("SELECT")
     assert state["validation_error"] == ""
     assert state["rows"] == [{"id": 1, "name": "Alice"}]
     assert state["final_answer"]
@@ -374,7 +374,7 @@ async def test_agent_graph_uses_llm_for_intent_and_sql_when_available() -> None:
     )
 
     assert state["debug_trace"]["intent_parser"]["source"] == "llm"
-    assert "ORDER BY" in state["sql"]
+    assert "ORDER BY" in state["generated_sql"]
     assert state["status"] == "ready"
 
 
