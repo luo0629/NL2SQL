@@ -270,3 +270,36 @@ Added same-instance multi-database schema support, qualified cross-database SQL 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: Implement schema change auto-detection via INFORMATION_SCHEMA polling
+
+**Date**: 2026-05-09
+**Task**: Implement schema change auto-detection via INFORMATION_SCHEMA polling
+**Branch**: `main`
+
+### Summary
+
+Added SchemaWatcher that polls INFORMATION_SCHEMA.COLUMNS every 30s to detect DDL changes. When schema signature changes, triggers sync_schema_metadata() and invalidates rag_service cache. Integrated into FastAPI lifespan with config toggle. Zero external dependencies, zero MySQL permissions required.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8aebc04` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

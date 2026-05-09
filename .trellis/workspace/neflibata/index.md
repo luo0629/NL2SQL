@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
-- **Last Active**: 2026-05-08
+- **Total Sessions**: 9
+- **Last Active**: 2026-05-09
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~272 | Active |
+| `journal-1.md` | ~305 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-05-09 | Implement schema change auto-detection via INFORMATION_SCHEMA polling | `8aebc04` | `main` |
 | 8 | 2026-05-08 | Cross database join support | `8a56ee2` | `main` |
 | 7 | 2026-05-08 | Value existence validation before SQL execution | `e03e138` | `main` |
 | 6 | 2026-05-08 | SQL prompt field matching rules | `7f70538` | `main` |
