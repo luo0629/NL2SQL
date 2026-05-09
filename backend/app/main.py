@@ -6,13 +6,21 @@ from app.config import get_settings
 from app.core.logging import configure_logging
 from app.core.middleware import configure_middlewares
 from app.routers.query import router as query_router
+from app.schema_watcher import schema_watcher
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # 应用启动阶段初始化日志等基础设施。
     configure_logging()
+    settings = get_settings()
+    if settings.schema_watcher_enabled:
+        await schema_watcher.start(
+            databases=settings.effective_database_names,
+            interval_seconds=settings.schema_watcher_interval_seconds,
+        )
     yield
+    await schema_watcher.stop()
 
 
 def create_application() -> FastAPI:

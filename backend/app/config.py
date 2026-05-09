@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     business_semantic_yaml_enabled: bool = False
     business_semantic_yaml_dir: str = str(PROJECT_ROOT / "yaml")
     business_semantic_override_path: str | None = None
+    # Schema 变更检测（轮询 INFORMATION_SCHEMA）
+    schema_watcher_enabled: bool = False
+    schema_watcher_interval_seconds: float = 30.0
     llm_request_timeout_seconds: int = 45
     agent_llm_node_timeout_seconds: float = 12.0
     result_formatter_llm_timeout_seconds: float = 6.0

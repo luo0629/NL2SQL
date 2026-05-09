@@ -14,6 +14,13 @@ _catalog_cached_at: dict[str, float] = {}
 _catalog_lock = asyncio.Lock()
 
 
+async def invalidate_schema_cache() -> None:
+    """清除 schema 缓存，下次查询时重新同步。"""
+    async with _catalog_lock:
+        _catalog_cache.clear()
+        _catalog_cached_at.clear()
+
+
 def _ensure_business_semantics(catalog: SchemaCatalog) -> SchemaCatalog:
     if catalog.business_semantics is None:
         settings = get_settings()
