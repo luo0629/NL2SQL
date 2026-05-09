@@ -1,0 +1,47 @@
+# 字段查询示例
+# 为常用字段提供自然语言到 SQL 的映射示例
+
+generated:
+  examples:
+    # jc_experimental 委托查询示例
+    - question: "查询所有待审核的委托"
+      sql: "SELECT * FROM jc_experimental.weituo WHERE wt_status = '0' LIMIT 200"
+      tables: ["jc_experimental.weituo"]
+      tags: ["detail", "filter"]
+    - question: "查询已完成的委托"
+      sql: "SELECT * FROM jc_experimental.weituo WHERE wt_status = '3' LIMIT 200"
+      tables: ["jc_experimental.weituo"]
+      tags: ["detail", "filter"]
+    - question: "查询已驳回的委托"
+      sql: "SELECT * FROM jc_experimental.weituo WHERE wt_status = '2' LIMIT 200"
+      tables: ["jc_experimental.weituo"]
+      tags: ["detail", "filter"]
+    - question: "查询某个委托的结算信息"
+      sql: "SELECT w.wtbh, s.total_fee, s.should_pay, s.paied, s.status FROM jc_experimental.weituo w JOIN jc_experimental.weituo_settle_bill s ON w.wtbh = s.wtbh WHERE w.wtbh = ? LIMIT 200"
+      tables: ["jc_experimental.weituo", "jc_experimental.weituo_settle_bill"]
+      tags: ["detail", "join"]
+    - question: "查询每个委托的总结算金额"
+      sql: "SELECT wtbh, SUM(total_fee) AS total_amount FROM jc_experimental.weituo_settle_bill GROUP BY wtbh ORDER BY total_amount DESC LIMIT 200"
+      tables: ["jc_experimental.weituo_settle_bill"]
+      tags: ["aggregation", "group-by"]
+    - question: "查询某个委托的清算明细"
+      sql: "SELECT d.wtbh, d.csdm, d.sl, d.jg FROM jc_experimental.weituo_clearing_detail d WHERE d.wtbh = ? LIMIT 200"
+      tables: ["jc_experimental.weituo_clearing_detail"]
+      tags: ["detail", "filter"]
+
+    # 苍穹外卖查询示例
+    - question: "查询最近 30 天的订单"
+      sql: "SELECT id, user_id, amount, status, order_time FROM orders WHERE order_time >= CURRENT_DATE - INTERVAL '30 days' ORDER BY order_time DESC LIMIT 200"
+      tables: ["orders"]
+      tags: ["detail", "time-range"]
+    - question: "查询起售中的菜品"
+      sql: "SELECT id, name, price FROM dish WHERE status = '1' LIMIT 200"
+      tables: ["dish"]
+      tags: ["detail", "filter"]
+    - question: "查询每个分类下的菜品数量"
+      sql: "SELECT c.name, COUNT(d.id) AS dish_count FROM category c JOIN dish d ON c.id = d.category_id GROUP BY c.id, c.name ORDER BY dish_count DESC"
+      tables: ["category", "dish"]
+      tags: ["aggregation", "join", "group-by"]
+
+overrides:
+  examples: []

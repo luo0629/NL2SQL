@@ -1,0 +1,41 @@
+# 枚举值口语映射
+# 将数据库中的枚举值映射为用户口语表达
+
+generated:
+  enums:
+    # jc_experimental 委托状态
+    jc_experimental.weituo.wt_status:
+      values:
+        "0": "待审核"
+        "1": "已通过"
+        "2": "已驳回"
+        "3": "已完成"
+
+    # jc_experimental 结算单状态
+    jc_experimental.weituo_settle_bill.status:
+      values:
+        "0": "待结算"
+        "1": "已结算"
+        "2": "已取消"
+
+    # jc_experimental 清算账单状态
+    jc_experimental.weituo_clearing_bill.status:
+      values:
+        "0": "待清算"
+        "1": "已清算"
+        "2": "已取消"
+
+    # 苍穹外卖菜品状态
+    dish.status:
+      values:
+        "1": "起售"
+        "0": "停售"
+
+    # 苍穹外卖套餐状态
+    setmeal.status:
+      values:
+        "1": "起售"
+        "0": "停售"
+
+overrides:
+  enums: {}

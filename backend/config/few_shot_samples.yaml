@@ -1,0 +1,51 @@
+# Few-shot 样本
+# 用于 SQL 生成的示例问答对
+
+generated:
+  samples:
+    # jc_experimental 委托相关
+    - question: "查询所有待审核的委托"
+      intent: "查询委托列表，按状态筛选"
+      sql: "SELECT * FROM jc_experimental.weituo WHERE wt_status = '0' LIMIT 200"
+      tags: ["detail", "filter"]
+    - question: "查询某个委托编号的结算账单"
+      intent: "按委托编号查询结算信息"
+      sql: "SELECT * FROM jc_experimental.weituo_settle_bill WHERE wtbh = ? LIMIT 200"
+      tags: ["detail", "filter"]
+    - question: "查询每个委托的总结算金额"
+      intent: "按委托分组统计结算金额"
+      sql: "SELECT wtbh, SUM(total_fee) AS total_amount, SUM(should_pay) AS total_should_pay, SUM(paied) AS total_paied FROM jc_experimental.weituo_settle_bill GROUP BY wtbh ORDER BY total_amount DESC LIMIT 200"
+      tags: ["aggregation", "group-by"]
+    - question: "查询委托及其关联的清算明细"
+      intent: "查询委托和清算明细的关联数据"
+      sql: "SELECT w.wtbh, w.wt_status, d.csdm, d.sl, d.jg FROM jc_experimental.weituo w JOIN jc_experimental.weituo_clearing_detail d ON w.wtbh = d.wtbh WHERE w.wtbh = ? LIMIT 200"
+      tags: ["detail", "join"]
+
+    # 苍穹外卖相关
+    - question: "近 30 天收入最高的客户是谁？"
+      intent: "按客户统计近 30 天收入，取最高"
+      sql: "SELECT user_id, SUM(amount) AS total_revenue FROM orders WHERE order_time >= CURRENT_DATE - INTERVAL '30 days' GROUP BY user_id ORDER BY total_revenue DESC LIMIT 1"
+      tags: ["aggregation", "time-range", "top-n"]
+    - question: "近 30 天收入最高的 10 个客户是谁？"
+      intent: "按客户统计近 30 天收入，取前 10"
+      sql: "SELECT user_id, SUM(amount) AS total_revenue FROM orders WHERE order_time >= CURRENT_DATE - INTERVAL '30 days' GROUP BY user_id ORDER BY total_revenue DESC LIMIT 10"
+      tags: ["aggregation", "time-range", "top-n"]
+    - question: "最近 30 天最新的 20 笔订单有哪些？"
+      intent: "查询近 30 天订单，按时间倒序"
+      sql: "SELECT id, user_id, amount, status, order_time FROM orders WHERE order_time >= CURRENT_DATE - INTERVAL '30 days' ORDER BY order_time DESC LIMIT 20"
+      tags: ["detail", "time-range"]
+    - question: "列出最近 30 天的订单（最多 100 条）"
+      intent: "查询近 30 天订单列表"
+      sql: "SELECT id, user_id, amount, status, order_time FROM orders WHERE order_time >= CURRENT_DATE - INTERVAL '30 days' ORDER BY order_time DESC LIMIT 100"
+      tags: ["detail", "time-range"]
+    - question: "统计每个客户的订单总金额并按金额从高到低排序"
+      intent: "按客户分组统计订单金额"
+      sql: "SELECT user_id, SUM(amount) AS total_spent FROM orders GROUP BY user_id ORDER BY total_spent DESC"
+      tags: ["aggregation", "top-n"]
+    - question: "查询起售中的菜品"
+      intent: "查询菜品状态为起售的列表"
+      sql: "SELECT id, name, price FROM dish WHERE status = '1' LIMIT 200"
+      tags: ["detail", "filter"]
+
+overrides:
+  samples: []
