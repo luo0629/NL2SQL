@@ -21,6 +21,9 @@ backend/.venv/
 .pytest_cache/
 .ruff_cache/
 
+# Local backend config (do not commit)
+backend/config/
+
 # Local databases and runtime artifacts
 *.db
 *.sqlite3

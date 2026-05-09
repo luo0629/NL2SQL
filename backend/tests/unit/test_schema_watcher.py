@@ -135,3 +135,23 @@ async def test_schema_watcher_exception_in_loop_does_not_propagate() -> None:
         assert not watcher._task.done()
 
         await watcher.stop()
+
+
+@pytest.mark.anyio
+async def test_schema_watcher_refreshes_config_yaml_after_schema_change() -> None:
+    watcher = SchemaWatcher()
+
+    with patch(
+        "app.schema_watcher._compute_schema_signature",
+        new_callable=AsyncMock,
+        side_effect=["sig-a", "sig-b"],
+    ), patch("app.schema_watcher.sync_schema_metadata", new_callable=AsyncMock) as sync_mock, patch(
+        "app.schema_watcher.refresh_generated_config_yaml", new_callable=AsyncMock
+    ) as refresh_mock, patch("app.schema_watcher.invalidate_schema_cache", new_callable=AsyncMock) as invalidate_mock:
+        await watcher.start(databases=["testdb"], interval_seconds=0.01)
+        await asyncio.sleep(0.05)
+        await watcher.stop()
+
+    sync_mock.assert_awaited()
+    refresh_mock.assert_awaited()
+    invalidate_mock.assert_awaited()

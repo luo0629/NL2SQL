@@ -314,7 +314,7 @@ def test_yaml_disabled_does_not_create_database_specific_file(tmp_path) -> None:
     semantics = build_business_semantics(_catalog(), yaml_enabled=False, database_url=database_url, yaml_dir=tmp_path)
 
     assert any(metric.name == "销售额" for metric in semantics.metrics)
-    assert list(tmp_path.iterdir()) == []
+    assert list(tmp_path.glob("business_semantics_*.yaml")) == []
 
 
 def test_yaml_enabled_generates_safe_database_specific_file(tmp_path) -> None:

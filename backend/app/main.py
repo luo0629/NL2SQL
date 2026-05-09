@@ -1,12 +1,16 @@
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 
 from app.config import get_settings
+from app.config_generation import refresh_generated_config_yaml
 from app.core.logging import configure_logging
 from app.core.middleware import configure_middlewares
 from app.routers.query import router as query_router
 from app.schema_watcher import schema_watcher
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -14,6 +18,10 @@ async def lifespan(_: FastAPI):
     # 应用启动阶段初始化日志等基础设施。
     configure_logging()
     settings = get_settings()
+    try:
+        await refresh_generated_config_yaml()
+    except Exception:
+        logger.exception("Automatic config YAML refresh failed during startup")
     if settings.schema_watcher_enabled:
         await schema_watcher.start(
             databases=settings.effective_database_names,

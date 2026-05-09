@@ -658,6 +658,99 @@ def _format_table_schema(
     return "\n".join(lines)
 
 
+def _build_table_relations_overview(selected_table_names: set[str]) -> str:
+    """Build a natural-language overview of table relations for the LLM.
+
+    Reads from table_relations.yaml via AppConfig.  Returns an empty string
+    when no relation data is available or no selected tables match.
+    """
+    from app.config_loader import get_app_config
+
+    relations_config = get_app_config().table_relations
+    if not relations_config:
+        return ""
+
+    sections: list[str] = []
+
+    # --- Part 1: Table profiles (responsibilities & routing) ---
+    profiles = relations_config.get("table_profiles", {})
+    profile_lines: list[str] = []
+    for table_name, profile in profiles.items():
+        if table_name not in selected_table_names:
+            continue
+        desc = profile.get("description", "")
+        hints = profile.get("routing_hints", [])
+        cross_fields = profile.get("cross_table_fields", [])
+        parts: list[str] = []
+        if desc:
+            parts.append(f"  - {table_name}: {desc}")
+        for hint in hints:
+            intent = hint.get("intent", "")
+            hint_desc = hint.get("description", "")
+            if intent and hint_desc:
+                parts.append(f"    - {intent}: {hint_desc}")
+        for cf in cross_fields:
+            field = cf.get("field", "")
+            cf_desc = cf.get("description", "")
+            if field and cf_desc:
+                parts.append(f"    - field `{field}`: {cf_desc}")
+        if parts:
+            profile_lines.extend(parts)
+    if profile_lines:
+        sections.append("## Table Responsibilities & Routing\n" + "\n".join(profile_lines))
+
+    # --- Part 2: Relations (join guidance) ---
+    relations = relations_config.get("relations", [])
+    relation_lines: list[str] = []
+    for rel in relations:
+        from_table = rel.get("from_table", "")
+        to_table = rel.get("to_table", "")
+        if from_table not in selected_table_names or to_table not in selected_table_names:
+            continue
+        from_col = rel.get("from_column", "")
+        to_col = rel.get("to_column", "")
+        rel_type = rel.get("relation_type", "relation")
+        business_meaning = rel.get("business_meaning", "")
+        join_direction = rel.get("join_direction", "")
+        join_hint = rel.get("join_hint", "")
+        line = f"  - {from_table}.{from_col} -> {to_table}.{to_col} ({rel_type})"
+        if business_meaning:
+            line += f"\n    meaning: {business_meaning}"
+        if join_direction:
+            line += f"\n    join: {join_direction}"
+        elif join_hint:
+            line += f"\n    hint: {join_hint}"
+        relation_lines.append(line)
+    if relation_lines:
+        sections.append("## Table Relations (Join Guidance)\n" + "\n".join(relation_lines))
+
+    # --- Part 2b: Multi-hop paths ---
+    multi_hop = relations_config.get("multi_hop_paths", [])
+    hop_lines: list[str] = []
+    for path_entry in multi_hop:
+        path_tables = path_entry.get("path", [])
+        if not any(t in selected_table_names for t in path_tables):
+            continue
+        desc = path_entry.get("description", "")
+        scenario = path_entry.get("business_scenario", "")
+        join_chain = path_entry.get("join_chain", [])
+        chain_str = " -> ".join(
+            f"{step.get('from', '')} -> {step.get('to', '')}" for step in join_chain
+        )
+        line = f"  - Path: {' -> '.join(path_tables)}"
+        if desc:
+            line += f"\n    description: {desc}"
+        if scenario:
+            line += f"\n    scenario: {scenario}"
+        if chain_str:
+            line += f"\n    join_chain: {chain_str}"
+        hop_lines.append(line)
+    if hop_lines:
+        sections.append("## Multi-Hop Join Paths\n" + "\n".join(hop_lines))
+
+    return "\n\n".join(sections)
+
+
 def schema_retriever(state: AgentState, catalog: SchemaCatalog | None = None) -> AgentState:
     relevant = state.get("relevant_tables", [])
     table_lookup = _build_table_lookup(_catalog_tables(catalog))
@@ -672,10 +765,17 @@ def schema_retriever(state: AgentState, catalog: SchemaCatalog | None = None) ->
     if not selected_tables:
         selected_tables = _catalog_tables(catalog)[:4]
     selected_table_names = {_table_identity(table) for table in selected_tables}
-    schema_context = "\n\n".join(
+
+    # Build table relations overview from YAML config
+    relations_overview = _build_table_relations_overview(selected_table_names)
+
+    table_schemas = "\n\n".join(
         _format_table_schema(table, catalog, selected_table_names)
         for table in selected_tables
     )
+    # Prepend relations overview before individual table schemas
+    schema_context = f"{relations_overview}\n\n{table_schemas}" if relations_overview else table_schemas
+
     semantic_context = _render_semantic_context(
         _catalog_semantics(catalog),
         selected_table_names,
@@ -686,6 +786,7 @@ def schema_retriever(state: AgentState, catalog: SchemaCatalog | None = None) ->
         "tables": [_table_identity(table) for table in selected_tables],
         "schema_context_chars": len(schema_context),
         "semantic_context_chars": len(semantic_context),
+        "relations_overview_chars": len(relations_overview),
     }
     matched_table_names = [_table_identity(table) for table in selected_tables]
     return {

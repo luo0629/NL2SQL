@@ -8,6 +8,7 @@ import logging
 
 from sqlalchemy import text
 
+from app.config_generation import refresh_generated_config_yaml
 from app.database.engine import engine
 from app.rag.schema_sync import sync_schema_metadata
 from app.services.rag_service import invalidate_schema_cache
@@ -81,8 +82,9 @@ class SchemaWatcher:
                         current,
                     )
                     await sync_schema_metadata()
+                    await refresh_generated_config_yaml()
                     await invalidate_schema_cache()
-                    logger.info("Schema sync complete after change.")
+                    logger.info("Schema sync and config refresh complete after change.")
                 last_signature = current
             except asyncio.CancelledError:
                 raise

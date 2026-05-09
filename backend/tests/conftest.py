@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from pathlib import Path
+from shutil import copytree
 from typing import override
 
 import pytest
@@ -38,8 +39,12 @@ class StubSQLExecutor(SQLExecutor):
 
 
 @pytest.fixture(autouse=True)
-def isolate_business_semantic_yaml_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Generator[None, None, None]:
+def isolate_generated_yaml_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Generator[None, None, None]:
     monkeypatch.setenv("BUSINESS_SEMANTIC_YAML_DIR", str(tmp_path / "business_semantics_yaml"))
+    source_config_dir = Path(__file__).resolve().parents[1] / "config"
+    target_config_dir = tmp_path / "config"
+    copytree(source_config_dir, target_config_dir)
+    monkeypatch.setenv("CONFIG_DIR", str(target_config_dir))
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
