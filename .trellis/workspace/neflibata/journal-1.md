@@ -435,3 +435,38 @@ Implemented stage-1 join reliability safeguards with schema-driven relation disc
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: Stage 2 join reliability runtime probes
+
+**Date**: 2026-05-10
+**Task**: Stage 2 join reliability runtime probes
+**Branch**: `main`
+
+### Summary
+
+Implemented stage-2 join reliability with bounded runtime probes, metadata-first candidate filtering, relation scoring feedback, and updated backend execution contracts.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a453ef2` | (see git log) |
+| `26eeec5` | (see git log) |
+| `2e88fc5` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
