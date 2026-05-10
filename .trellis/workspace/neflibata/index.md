@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 10
-- **Last Active**: 2026-05-09
+- **Total Sessions**: 11
+- **Last Active**: 2026-05-10
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~338 | Active |
+| `journal-1.md` | ~371 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 11 | 2026-05-10 | Add agent SQL decision logs | `e9a567a` | `main` |
 | 10 | 2026-05-09 | YAML Config Refactor - Split configs by responsibility | `96edafd` | `main` |
 | 9 | 2026-05-09 | Implement schema change auto-detection via INFORMATION_SCHEMA polling | `8aebc04` | `main` |
 | 8 | 2026-05-08 | Cross database join support | `8a56ee2` | `main` |

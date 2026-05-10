@@ -336,3 +336,36 @@ Split all YAML configs into 6 independent files under backend/config/ (table_rel
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: Add agent SQL decision logs
+
+**Date**: 2026-05-10
+**Task**: Add agent SQL decision logs
+**Branch**: `main`
+
+### Summary
+
+Added terminal-visible agent decision logs for table selection, join relation selection, and SQL generation preview, with focused backend tests for the new logging output.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e9a567a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
