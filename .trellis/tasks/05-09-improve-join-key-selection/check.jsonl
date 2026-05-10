@@ -1,0 +1,6 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend NL2SQL conventions and module responsibilities for join-key changes"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Testing and contract rules for backend shared schema and graph changes"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Schema metadata and executor boundaries relevant to relation scoring"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid duplicating NL2SQL relation logic while extending existing flow"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Preserve contracts across schema models, graph state, and rendered context"}

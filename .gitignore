@@ -42,6 +42,10 @@ CLAUDE.md
 .trellis/*
 !.trellis/spec/
 !.trellis/spec/**
+!.trellis/workspace/
+!.trellis/workspace/**
+!.trellis/tasks/
+!.trellis/tasks/**
 !.trellis/workflow.md
 !.trellis/scripts/
 !.trellis/scripts/**
