@@ -89,3 +89,4 @@ These modules define contracts shared across multiple layers.
 - Updating `NLQueryResponse` without updating `frontend/src/App.vue`
 - Forgetting that graph caching and test doubles can affect assertions around the compiled agent flow
 - Assuming schema enrichment keys always use short table names; generated config may emit qualified names, so enrichment lookup must handle both forms
+- Assuming runtime join probes are only needed when a table pair has multiple sibling candidates; a single dirty shared-key candidate can also need bounded validation

@@ -184,9 +184,12 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Schema state fields: `AgentState.schema_catalog: SchemaCatalog | None`, `AgentState.schema_context: str`.
 - Schema relation sources: `schema_sync.sync_schema_metadata()` must build `SchemaCatalog.relations` in this precedence order: live foreign keys -> validated `table_relations.yaml` overrides -> inferred shared-key relations from live schema.
 - Schema column enrichment fields: `SchemaColumn.cross_table_diff: str | None` is rendered into `schema_context` when available and is used to warn the generator away from ambiguous join candidates.
+- Stage 2 relation fields: `SchemaRelation.ranking_score: float | None` and `SchemaRelation.validation_summary: str | None` may be attached for runtime-validated join candidates.
 - SQL state fields: `AgentState.generated_sql: str`, `AgentState.validation_error: str`, `AgentState.previous_sql: str`, `AgentState.retry_count: int`, `AgentState.max_retries: int`.
 - Execution path: `SQLExecutor.execute(sql: str, params: list[object] | None = None, max_rows: int | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
 - EXPLAIN path: `SQLExecutor.explain(sql: str, params: list[object] | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
+- Runtime probe path: `SQLExecutor.sample_column_values(table: str, column: str, *, order_by: list[str] | None = None, limit: int = 40, timeout_seconds: float | None = None) -> list[object]`.
+- Runtime probe settings: `Settings.relation_probe_enabled`, `Settings.relation_probe_top_k`, `Settings.relation_probe_sample_limit`, `Settings.relation_probe_timeout_seconds`.
 
 ### 3. Contracts
 
@@ -196,6 +199,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - When `cross_table_diff` exists for a field, it must be surfaced in `schema_context` so the generator can distinguish business join keys from audit, reserve, deleted, revision, or other same-name fields.
 - Live database switching must remain automatic behind `Settings.database_url`; schema relation discovery must not depend on business-table hard-coding in Python constants.
 - The default relation strategy is: trust real FK first, allow validated config overrides second, and only then infer shared-key joins from live schema within the same database scope.
+- Stage 2 runtime validation must remain metadata-first: probe only a bounded top-K set of plausible candidates after metadata filtering, not every same-name field in the schema.
+- Runtime probes must stay read-only, deterministic, and bounded: use `ORDER BY + LIMIT`, sample endpoint columns rather than full join outputs, and keep probe results in relation metadata / `schema_context` / `debug_trace` instead of reshaping the graph contract.
+- Even when a table pair has only one shared-key candidate, it should still be eligible for runtime probing if it falls within the configured probe budget; otherwise high-null or low-overlap dirty keys can bypass validation.
 - Qualified and unqualified table names (for example `jc_experimental.weituo` vs `weituo`) must both resolve against enrichment data for table, column, and relation hints.
 - `sql_generator` must generate SQL directly from `question`, `intent`, `schema_context`, `previous_sql`, `validation_error`, and `retry_count`; do not route the main path through `SemanticQuery` or `sql_plan` rendering.
 - `sql_validator` must run read-only safety checks before any database interaction, then run `EXPLAIN` only for MySQL-compatible URLs.
@@ -208,6 +214,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - No relevant table selected -> deterministic fallback chooses a bounded set of real catalog tables.
 - Live schema has FK metadata -> emit FK relations with highest trust and default `confidence="high"` when no override is present.
 - No FK but same-name columns exist -> infer shared-key relations only for non-blocked business fields; exclude reserve, deleted, revision, audit, time, and generic status/type/name/remark fields.
+- Candidate relation survives metadata filtering and is in runtime probe top-K -> run bounded endpoint sampling and feed signals back into `ranking_score`, `confidence`, and `validation_summary`.
+- Table pair has exactly one shared-key candidate but is within probe budget -> still probe it; do not skip runtime validation just because there is no competing sibling candidate.
+- Runtime probe uses `LIMIT` without stable ordering -> reject the design; probes must preserve deterministic `ORDER BY + LIMIT` to stay validator-compatible.
 - Config override uses qualified table names while runtime lookup uses short names -> enrichment lookup must still resolve correctly.
 - Unsafe SQL -> `SQLValidator` rejects before `EXPLAIN` and before execution.
 - MySQL `EXPLAIN` failure -> set `validation_error`, increment retry count, and retry generation until `max_retries`.
@@ -217,9 +226,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 
 ### 5. Good/Base/Bad Cases
 
-- Good: LLM picks real tables, schema context includes comments/defaults plus `cross_table_diff`, shared-key joins are inferred only for credible business fields, generated SELECT passes read-only and MySQL `EXPLAIN`, then executes through `SQLExecutor`.
+- Good: LLM picks real tables, schema context includes comments/defaults plus `cross_table_diff`, shared-key joins are inferred only for credible business fields, ambiguous or risky candidates receive bounded runtime validation, and the resulting `confidence` / `validation_summary` guide SQL generation before execution.
 - Base: LLM unavailable; fallback picks real catalog tables and generates a conservative SELECT over real schema.
-- Bad: SQL is generated from a template plan, static hard-coded schema, hard-coded business-table relations, or `SemanticQuery/sql_plan` main-path rendering.
+- Bad: SQL is generated from a template plan, static hard-coded schema, hard-coded business-table relations, or a runtime-probe design that samples every candidate relation without budget control.
 
 ### 6. Tests Required
 
@@ -227,8 +236,12 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Unit/graph: `schema_retriever` only renders selected tables and selected-table relations.
 - Unit/graph: schema context includes default values and comments when available.
 - Unit/graph: schema context exposes `cross_table_diff`, relation `confidence`, and relation `hint` when present.
+- Unit/graph: schema context can surface runtime validation summaries / ranking signals without changing the graph shape.
 - Unit/schema: qualified and unqualified table names both resolve against table/column/relation enrichment.
 - Unit/schema: inferred shared-key relation generation includes business-key fields and excludes audit/reserve/time/status-like fields.
+- Unit/schema: runtime probes can promote higher-overlap business keys over weaker candidates and must respect `relation_probe_top_k` budget.
+- Unit/schema: single-candidate table pairs within budget still receive bounded runtime probing.
+- Unit/executor: `sample_column_values()` enforces bounded, deterministic read-only sampling.
 - Unit/graph: validation failure retries generation up to `max_retries=3` and never executes failed SQL.
 - Unit/integration: high-level query returns `sql`, `rows`, `columns`, `row_count`, and `execution_summary` through the existing API contract.
 
@@ -237,18 +250,31 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 #### Wrong
 
 ```python
-RELATION_HINTS = [
-    ("weituo_settle_bill", "wtbh", "weituo", "wtbh", "many-to-one"),
-]
-# Switch database_url later and hope this still works.
+for candidate in all_same_name_relations:
+    candidate.validation = await expensive_full_join_scan(candidate)
 ```
 
 #### Correct
 
 ```python
-catalog = await sync_schema_metadata()
-# Priority: live FK -> validated config override -> inferred shared-key relation
-schema_context = render_schema_context(catalog, relevant_tables)
+candidates = metadata_filter(all_same_name_relations)
+probe_targets = pick_top_k(candidates, k=settings.relation_probe_top_k)
+for candidate in probe_targets:
+    candidate.validation = await executor.sample_column_values(...)
+```
+
+#### Wrong
+
+```python
+if len(candidate_group) <= 1:
+    return  # no sibling candidate, so skip probe
+```
+
+#### Correct
+
+```python
+if candidate in top_k_budget:
+    run_bounded_runtime_probe(candidate)
 ```
 
 #### Wrong
