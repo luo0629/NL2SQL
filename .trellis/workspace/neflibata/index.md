@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 12
+- **Total Sessions**: 13
 - **Last Active**: 2026-05-10
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~404 | Active |
+| `journal-1.md` | ~437 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 13 | 2026-05-10 | Enterprise join reliability and README refresh | `ac5d035` | `main` |
 | 12 | 2026-05-10 | Fix Trellis finish-work gitignore issue | `e873142` | `main` |
 | 11 | 2026-05-10 | Add agent SQL decision logs | `e9a567a` | `main` |
 | 10 | 2026-05-09 | YAML Config Refactor - Split configs by responsibility | `96edafd` | `main` |

@@ -402,3 +402,36 @@ Allowed .trellis/workspace and .trellis/tasks in .gitignore so Trellis finish-wo
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: Enterprise join reliability and README refresh
+
+**Date**: 2026-05-10
+**Task**: Enterprise join reliability and README refresh
+**Branch**: `main`
+
+### Summary
+
+Implemented stage-1 join reliability safeguards with schema-driven relation discovery and rewrote project/docs positioning toward an enterprise-oriented SQLAgent.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ac5d035` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
