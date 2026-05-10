@@ -182,6 +182,8 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Graph main path: `load_schema_catalog -> intent_parser -> schema_retriever -> sql_generator -> sql_validator -> value_validator -> sql_executor -> result_formatter`, with retry branches from both validators back to `sql_generator`.
 - Intent state fields: `AgentState.intent: str`, `AgentState.relevant_tables: list[str]`.
 - Schema state fields: `AgentState.schema_catalog: SchemaCatalog | None`, `AgentState.schema_context: str`.
+- Schema relation sources: `schema_sync.sync_schema_metadata()` must build `SchemaCatalog.relations` in this precedence order: live foreign keys -> validated `table_relations.yaml` overrides -> inferred shared-key relations from live schema.
+- Schema column enrichment fields: `SchemaColumn.cross_table_diff: str | None` is rendered into `schema_context` when available and is used to warn the generator away from ambiguous join candidates.
 - SQL state fields: `AgentState.generated_sql: str`, `AgentState.validation_error: str`, `AgentState.previous_sql: str`, `AgentState.retry_count: int`, `AgentState.max_retries: int`.
 - Execution path: `SQLExecutor.execute(sql: str, params: list[object] | None = None, max_rows: int | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
 - EXPLAIN path: `SQLExecutor.explain(sql: str, params: list[object] | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
@@ -191,6 +193,10 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - `intent_parser` must choose candidate tables from the real schema catalog and programmatically drop LLM-returned tables that do not exist.
 - `schema_retriever` must render schema context only for `relevant_tables`; relationships are included only when both relation endpoints are selected.
 - Schema context should include field name, type, nullable, default, primary key marker, field/table descriptions or comments, and selected-table relations when available.
+- When `cross_table_diff` exists for a field, it must be surfaced in `schema_context` so the generator can distinguish business join keys from audit, reserve, deleted, revision, or other same-name fields.
+- Live database switching must remain automatic behind `Settings.database_url`; schema relation discovery must not depend on business-table hard-coding in Python constants.
+- The default relation strategy is: trust real FK first, allow validated config overrides second, and only then infer shared-key joins from live schema within the same database scope.
+- Qualified and unqualified table names (for example `jc_experimental.weituo` vs `weituo`) must both resolve against enrichment data for table, column, and relation hints.
 - `sql_generator` must generate SQL directly from `question`, `intent`, `schema_context`, `previous_sql`, `validation_error`, and `retry_count`; do not route the main path through `SemanticQuery` or `sql_plan` rendering.
 - `sql_validator` must run read-only safety checks before any database interaction, then run `EXPLAIN` only for MySQL-compatible URLs.
 - Non-MySQL test/development URLs may skip `EXPLAIN` with debug metadata; they must not silently execute invalid SQL before read-only validation.
@@ -200,6 +206,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 
 - LLM selects nonexistent table -> filter it out before schema retrieval.
 - No relevant table selected -> deterministic fallback chooses a bounded set of real catalog tables.
+- Live schema has FK metadata -> emit FK relations with highest trust and default `confidence="high"` when no override is present.
+- No FK but same-name columns exist -> infer shared-key relations only for non-blocked business fields; exclude reserve, deleted, revision, audit, time, and generic status/type/name/remark fields.
+- Config override uses qualified table names while runtime lookup uses short names -> enrichment lookup must still resolve correctly.
 - Unsafe SQL -> `SQLValidator` rejects before `EXPLAIN` and before execution.
 - MySQL `EXPLAIN` failure -> set `validation_error`, increment retry count, and retry generation until `max_retries`.
 - Non-MySQL URL -> skip `EXPLAIN` with controlled debug reason, then rely on read-only validation and executor behavior.
@@ -208,15 +217,18 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 
 ### 5. Good/Base/Bad Cases
 
-- Good: LLM picks real tables, schema context includes comments/defaults, generated SELECT passes read-only and MySQL `EXPLAIN`, then executes through `SQLExecutor`.
+- Good: LLM picks real tables, schema context includes comments/defaults plus `cross_table_diff`, shared-key joins are inferred only for credible business fields, generated SELECT passes read-only and MySQL `EXPLAIN`, then executes through `SQLExecutor`.
 - Base: LLM unavailable; fallback picks real catalog tables and generates a conservative SELECT over real schema.
-- Bad: SQL is generated from a template plan, static hard-coded schema, or `SemanticQuery/sql_plan` main-path rendering.
+- Bad: SQL is generated from a template plan, static hard-coded schema, hard-coded business-table relations, or `SemanticQuery/sql_plan` main-path rendering.
 
 ### 6. Tests Required
 
 - Unit/graph: hallucinated table names are filtered from `relevant_tables`.
 - Unit/graph: `schema_retriever` only renders selected tables and selected-table relations.
 - Unit/graph: schema context includes default values and comments when available.
+- Unit/graph: schema context exposes `cross_table_diff`, relation `confidence`, and relation `hint` when present.
+- Unit/schema: qualified and unqualified table names both resolve against table/column/relation enrichment.
+- Unit/schema: inferred shared-key relation generation includes business-key fields and excludes audit/reserve/time/status-like fields.
 - Unit/graph: validation failure retries generation up to `max_retries=3` and never executes failed SQL.
 - Unit/integration: high-level query returns `sql`, `rows`, `columns`, `row_count`, and `execution_summary` through the existing API contract.
 
@@ -225,18 +237,35 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 #### Wrong
 
 ```python
-sql_plan = SQLPlanner().build(query_understanding, schema_linking, value_links, join_path_plan)
-generated = SQLGenerator().generate(sql_plan.model_dump())
-result = await executor.execute(generated.sql)
+RELATION_HINTS = [
+    ("weituo_settle_bill", "wtbh", "weituo", "wtbh", "many-to-one"),
+]
+# Switch database_url later and hope this still works.
 ```
 
 #### Correct
 
 ```python
-intent = parse_intent(question, catalog.tables)
-schema_context = render_schema_context(catalog, intent.relevant_tables)
-sql = generate_sql(question, intent.description, schema_context, previous_sql, validation_error)
-validator.validate_read_only(sql)
-explain_result = await executor.explain(sql)  # MySQL only
-result = await executor.execute(sql)
+catalog = await sync_schema_metadata()
+# Priority: live FK -> validated config override -> inferred shared-key relation
+schema_context = render_schema_context(catalog, relevant_tables)
+```
+
+#### Wrong
+
+```python
+table_enrichment = enrichment.table_enrichments[table_name]
+column_enrichment = enrichment.column_enrichments[table_name][column_name]
+```
+
+#### Correct
+
+```python
+table_enrichment = get_table_enrichment(enrichment, table_name)
+column_enrichment = get_column_enrichment(
+    enrichment,
+    table_name=table_name,
+    column_name=column_name,
+)
+# Qualified and unqualified table names both resolve.
 ```

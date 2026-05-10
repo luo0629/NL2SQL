@@ -35,20 +35,146 @@ TABLE_DESCRIPTIONS: dict[str, str] = {
     "user": "用户表",
 }
 
-RELATION_HINTS: list[tuple[str, str, str, str, str | None]] = [
-    ("dish", "category_id", "category", "id", "many-to-one"),
-    ("setmeal", "category_id", "category", "id", "many-to-one"),
-    ("dish_flavor", "dish_id", "dish", "id", "many-to-one"),
-    ("order_detail", "order_id", "orders", "id", "many-to-one"),
-    ("order_detail", "dish_id", "dish", "id", "many-to-one"),
-    ("orders", "user_id", "user", "id", "many-to-one"),
-    ("shopping_cart", "user_id", "user", "id", "many-to-one"),
-    ("shopping_cart", "dish_id", "dish", "id", "many-to-one"),
-    ("shopping_cart", "setmeal_id", "setmeal", "id", "many-to-one"),
-    ("setmeal_dish", "setmeal_id", "setmeal", "id", "many-to-one"),
-    ("setmeal_dish", "dish_id", "dish", "id", "many-to-one"),
-    ("orders", "address_book_id", "address_book", "id", "many-to-one"),
-]
+RELATION_HINTS: list[tuple[str, str, str, str, str | None]] = []
+
+_INFERRED_JOIN_EXCLUDED_COLUMN_NAMES = {
+    "id",
+    "tenant_id",
+    "deleted",
+    "revision",
+    "creator",
+    "updater",
+    "create_user",
+    "update_user",
+    "create_time",
+    "update_time",
+    "created_at",
+    "updated_at",
+    "status",
+    "type",
+    "name",
+    "remark",
+}
+
+_PREFERRED_JOIN_DESCRIPTION_TOKENS = ("编号", "代码", "code", "key", "number", "no")
+_DOWNRANK_JOIN_DESCRIPTION_TOKENS = ("临时", "预", "保留", "备用", "审计", "创建", "更新", "删除")
+
+
+def _normalized_column_name(value: str) -> str:
+    return value.strip().lower()
+
+
+def _is_blocked_join_column(column: SchemaColumn) -> bool:
+    name = _normalized_column_name(column.name)
+    role = str(column.semantic_role or "").lower()
+    if name.startswith("reserve") or name in _INFERRED_JOIN_EXCLUDED_COLUMN_NAMES:
+        return True
+    if role == "internal":
+        return True
+    return False
+
+
+def _join_column_score(column: SchemaColumn) -> int | None:
+    if _is_blocked_join_column(column):
+        return None
+
+    name = _normalized_column_name(column.name)
+    description = (column.description or "").lower()
+    role = str(column.semantic_role or "").lower()
+    score = 0
+
+    if role == "foreign_key":
+        score += 5
+    elif role == "identifier":
+        score += 2
+    elif role == "dimension":
+        score += 1
+
+    if column.is_primary_key and name != "id":
+        score += 2
+    if name.endswith("_id"):
+        score += 2
+    if any(token in description for token in _PREFERRED_JOIN_DESCRIPTION_TOKENS):
+        score += 4
+    if any(token in description for token in _DOWNRANK_JOIN_DESCRIPTION_TOKENS):
+        score -= 3
+    if column.nullable:
+        score -= 1
+
+    return score if score > 0 else None
+
+
+def _infer_relation_confidence(score: int) -> str:
+    if score >= 8:
+        return "high"
+    if score >= 5:
+        return "medium"
+    return "low"
+
+
+def _orient_inferred_relation(
+    left_table: SchemaTable,
+    left_column: SchemaColumn,
+    right_table: SchemaTable,
+    right_column: SchemaColumn,
+) -> tuple[SchemaTable, SchemaColumn, SchemaTable, SchemaColumn]:
+    left_role = str(left_column.semantic_role or "").lower()
+    right_role = str(right_column.semantic_role or "").lower()
+    if left_role == "foreign_key" and (right_column.is_primary_key or right_role == "identifier"):
+        return left_table, left_column, right_table, right_column
+    if right_role == "foreign_key" and (left_column.is_primary_key or left_role == "identifier"):
+        return right_table, right_column, left_table, left_column
+    if left_column.is_primary_key and not right_column.is_primary_key:
+        return right_table, right_column, left_table, left_column
+    if right_column.is_primary_key and not left_column.is_primary_key:
+        return left_table, left_column, right_table, right_column
+    if left_table.name <= right_table.name:
+        return left_table, left_column, right_table, right_column
+    return right_table, right_column, left_table, left_column
+
+
+def _infer_relations_from_shared_columns(tables: list[SchemaTable]) -> list[SchemaRelation]:
+    inferred_relations: list[SchemaRelation] = []
+    tables_by_database: dict[str | None, list[SchemaTable]] = {}
+    for table in tables:
+        tables_by_database.setdefault(table.database, []).append(table)
+
+    for database_name, database_tables in tables_by_database.items():
+        for left_index, left_table in enumerate(database_tables):
+            left_columns = {_normalized_column_name(column.name): column for column in left_table.columns}
+            for right_table in database_tables[left_index + 1:]:
+                right_columns = {_normalized_column_name(column.name): column for column in right_table.columns}
+                for shared_name in sorted(set(left_columns) & set(right_columns)):
+                    left_column = left_columns[shared_name]
+                    right_column = right_columns[shared_name]
+                    left_score = _join_column_score(left_column)
+                    right_score = _join_column_score(right_column)
+                    if left_score is None or right_score is None:
+                        continue
+                    from_table, from_column, to_table, to_column = _orient_inferred_relation(
+                        left_table,
+                        left_column,
+                        right_table,
+                        right_column,
+                    )
+                    confidence = _infer_relation_confidence(min(left_score, right_score))
+                    inferred_relations.append(
+                        SchemaRelation(
+                            from_database=database_name,
+                            from_table=from_table.name,
+                            from_column=from_column.name,
+                            to_database=database_name,
+                            to_table=to_table.name,
+                            to_column=to_column.name,
+                            relation_type="inferred-shared-key",
+                            confidence=confidence,
+                            join_hint=(
+                                f"自动推断：字段 `{shared_name}` 在两表间都像业务关联键；"
+                                "优先使用该字段联表，避免改用 reserve/deleted/revision/审计/时间类字段。"
+                            ),
+                        )
+                    )
+    return inferred_relations
 
 
 def _add_search_variants(terms: set[str], value: str | None) -> None:
@@ -149,6 +275,7 @@ async def sync_schema_metadata() -> SchemaCatalog:
                             db_description=comment_value,
                             fallback_mapping=fallback_mapping,
                         ),
+                        cross_table_diff=column_enrichment.cross_table_diff,
                         business_terms=column_enrichment.business_terms,
                         semantic_role=column_enrichment.semantic_role,
                     )
@@ -212,39 +339,82 @@ async def sync_schema_metadata() -> SchemaCatalog:
                     to_table=relation_key[4],
                     to_column=relation_key[5],
                     relation_type="foreign_key",
-                    confidence=relation_enrichment.confidence,
+                    confidence=relation_enrichment.confidence or "high",
                     join_hint=relation_enrichment.join_hint,
                 )
             )
 
-    for database_name in inspected_databases:
-        relation_database = database_name if expose_table_database else None
-        for from_table, from_column, to_table, to_column, relation_type in RELATION_HINTS:
-            if (relation_database, from_table) not in table_identity_set or (relation_database, to_table) not in table_identity_set:
-                continue
-            relation_key = (relation_database, from_table, from_column, relation_database, to_table, to_column)
-            if relation_key in seen_relations:
-                continue
-            relation_enrichment = get_relation_enrichment(
-                enrichment,
-                from_table=from_table,
-                from_column=from_column,
-                to_table=to_table,
-                to_column=to_column,
+    from app.config_loader import get_app_config
+
+    configured_relations = get_app_config().table_relations.get("relations", [])
+    for relation in configured_relations:
+        from_table_ref = str(relation.get("from_table") or "").strip()
+        from_column = str(relation.get("from_column") or "").strip()
+        to_table_ref = str(relation.get("to_table") or "").strip()
+        to_column = str(relation.get("to_column") or "").strip()
+        if not all([from_table_ref, from_column, to_table_ref, to_column]):
+            continue
+
+        from_database, from_table = from_table_ref.split(".", 1) if "." in from_table_ref else (None, from_table_ref)
+        to_database, to_table = to_table_ref.split(".", 1) if "." in to_table_ref else (None, to_table_ref)
+        relation_key = (
+            from_database if expose_table_database else None,
+            from_table,
+            from_column,
+            to_database if expose_table_database else None,
+            to_table,
+            to_column,
+        )
+        from_identity = (relation_key[0], relation_key[1])
+        to_identity = (relation_key[3], relation_key[4])
+        if from_identity not in table_identity_set or to_identity not in table_identity_set:
+            continue
+        if relation_key in seen_relations:
+            continue
+        seen_relations.add(relation_key)
+        relations.append(
+            SchemaRelation(
+                from_database=relation_key[0],
+                from_table=relation_key[1],
+                from_column=relation_key[2],
+                to_database=relation_key[3],
+                to_table=relation_key[4],
+                to_column=relation_key[5],
+                relation_type=str(relation.get("relation_type") or "configured"),
+                confidence=str(relation.get("confidence") or "high"),
+                join_hint=str(relation.get("join_hint") or relation.get("description") or ""),
             )
-            relations.append(
-                SchemaRelation(
-                    from_database=database_name if expose_table_database else None,
-                    from_table=from_table,
-                    from_column=from_column,
-                    to_database=database_name if expose_table_database else None,
-                    to_table=to_table,
-                    to_column=to_column,
-                    relation_type=relation_type,
-                    confidence=relation_enrichment.confidence,
-                    join_hint=relation_enrichment.join_hint,
-                )
+        )
+
+    for relation in _infer_relations_from_shared_columns(tables):
+        relation_key = (
+            relation.from_database if expose_table_database else None,
+            relation.from_table,
+            relation.from_column,
+            relation.to_database if expose_table_database else None,
+            relation.to_table,
+            relation.to_column,
+        )
+        if relation_key in seen_relations:
+            continue
+        from_identity = (relation_key[0], relation_key[1])
+        to_identity = (relation_key[3], relation_key[4])
+        if from_identity not in table_identity_set or to_identity not in table_identity_set:
+            continue
+        seen_relations.add(relation_key)
+        relations.append(
+            SchemaRelation(
+                from_database=relation_key[0],
+                from_table=relation.from_table,
+                from_column=relation.from_column,
+                to_database=relation_key[3],
+                to_table=relation.to_table,
+                to_column=relation.to_column,
+                relation_type=relation.relation_type,
+                confidence=relation.confidence,
+                join_hint=relation.join_hint,
             )
+        )
 
     catalog = SchemaCatalog(
         database=",".join(configured_databases) or default_database,

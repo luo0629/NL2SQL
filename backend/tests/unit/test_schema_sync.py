@@ -1,6 +1,12 @@
 import pytest
 
-from app.rag.schema_sync import _schema_include_tables_by_database, _table_names_for_schema, sync_schema_metadata
+from app.rag.schema_models import SchemaColumn, SchemaTable
+from app.rag.schema_sync import (
+    _infer_relations_from_shared_columns,
+    _schema_include_tables_by_database,
+    _table_names_for_schema,
+    sync_schema_metadata,
+)
 
 
 def test_schema_include_tables_are_grouped_by_database_and_deduped() -> None:
@@ -66,3 +72,35 @@ async def test_schema_sync_respects_configured_jc_experimental_whitelist() -> No
 
     weituo_table = next(table for table in catalog.tables if table.name == "weituo")
     assert weituo_table.columns
+
+
+def test_infer_relations_from_shared_columns_prefers_business_keys_and_skips_audit_fields() -> None:
+    relations = _infer_relations_from_shared_columns(
+        [
+            SchemaTable(
+                name="orders",
+                database="testdb",
+                columns=[
+                    SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, description="订单编号", semantic_role="dimension"),
+                    SchemaColumn(name="create_time", data_type="TIMESTAMP", nullable=True, description="创建时间", semantic_role="internal"),
+                ],
+            ),
+            SchemaTable(
+                name="payments",
+                database="testdb",
+                columns=[
+                    SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, description="订单编号", semantic_role="dimension"),
+                    SchemaColumn(name="create_time", data_type="TIMESTAMP", nullable=True, description="创建时间", semantic_role="internal"),
+                ],
+            ),
+        ]
+    )
+
+    assert any(
+        relation.from_column == "order_no" and relation.to_column == "order_no"
+        for relation in relations
+    )
+    assert all(
+        relation.from_column != "create_time" and relation.to_column != "create_time"
+        for relation in relations
+    )

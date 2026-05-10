@@ -496,6 +496,8 @@ def _selected_join_relations(selected_table_names: set[str], catalog: SchemaCata
         description = f"{relation.from_qualified_table}.{relation.from_column} -> {relation.to_qualified_table}.{relation.to_column}"
         if relation.relation_type:
             description += f" ({relation.relation_type})"
+        if relation.confidence:
+            description += f" [confidence={relation.confidence}]"
         if relation.join_hint:
             description += f" [{relation.join_hint}]"
         relations.append(description)
@@ -698,6 +700,8 @@ def _format_table_schema(
             attrs.append(f"comment=enum_mapping: {enum_mapping}")
         if column.business_terms:
             attrs.append(f"terms={', '.join(column.business_terms)}")
+        if getattr(column, "cross_table_diff", None):
+            attrs.append(f"cross_table_diff={column.cross_table_diff}")
         lines.append(f"- {_quote_identifier(column.name)} ({'; '.join(attrs)})")
 
     selected_table_names = selected_table_names or {table_identity}
@@ -710,11 +714,12 @@ def _format_table_schema(
     if relations:
         lines.append("Relations:")
         for relation in relations:
+            confidence = f"; confidence={relation.confidence}" if relation.confidence else ""
             hint = f"; hint={relation.join_hint}" if relation.join_hint else ""
             lines.append(
                 f"- {_relation_endpoint(relation.from_database, relation.from_table, relation.from_column)} -> "
                 f"{_relation_endpoint(relation.to_database, relation.to_table, relation.to_column)}"
-                f" ({relation.relation_type or 'relation'}{hint})"
+                f" ({relation.relation_type or 'relation'}{confidence}{hint})"
             )
     return "\n".join(lines)
 
@@ -872,6 +877,7 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
         "硬性规则：只能生成只读 SELECT/WITH 查询；禁止 INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/TRUNCATE/GRANT/EXEC/SLEEP/BENCHMARK。",
         "所有表名和字段名必须用反引号包裹。跨数据库或 schema_context 中显示为数据库限定的表，必须使用 MySQL 全限定表名，如 `jc_config`.`table`、`jc_experimental`.`table`。",
         "只能使用 schema_context 中出现的表和字段；业务语义只用于解释同义词、指标、枚举和默认过滤，不能引入未出现在 schema_context 的表字段。",
+        "JOIN 规则：优先使用 schema_context 中 Relations、Table Relations、hint、confidence 明确推荐的联表键；当多个同名字段都能联表时，优先业务主编号/外键语义更强的字段，避免使用 reserve、deleted、revision、creator、updater、*_time 以及带临时/预/保留/审计语义的字段。",
         "SELECT 输出默认优先选择 schema_context 标注的 Preferred SELECT output columns 或 output=business-readable 字段，例如 name/title/amount/status/time/description。",
         "WHERE 字段匹配规则：带 enum_mapping/枚举对照的字段必须使用精确匹配（= 或 IN），匹配值只能来自 schema_context 中该字段的 enum_mapping，禁止编造枚举值。",
         "名称类字符串字段（如 city/城市、name/姓名/客户名、product_name/商品名、title/标题、description/描述等）默认使用 LIKE 模糊匹配，并用通配符包裹用户给出的关键词。",

@@ -1,132 +1,117 @@
 <div align="center">
   <h1>SQLAgent</h1>
-  <p><strong>一个 NL2SQL项目：把业务问题直接翻译成可查看、可调整的 SQL。</strong></p>
-  <p>Vue 3 工作区负责输入与结果展示，FastAPI 后端负责查询接口与后续智能链路扩展。</p>
+  <p><strong>Enterprise-oriented SQL Agent for governed NL2SQL, join-aware schema reasoning, and controlled query execution.</strong></p>
+  <p>面向中文业务查询场景，聚焦可审查 SQL、联表可靠性、只读安全边界与逐步生产化落地。</p>
 </div>
 
 ---
 
-## 项目概览
+## SQLAgent 是什么
 
-SQLAgent 是一个面向中文场景的 NL2SQL 原型项目。
-你可以像提问一样输入业务问题，界面会在同一页内展示 SQL、状态与说明，适合做产品演示、链路验证和后续智能体能力扩展。
+SQLAgent 是一个正在持续演进的企业级 SQL Agent 项目。
+它的目标不是把自然语言“翻译成一段看起来像 SQL 的文本”，而是建立一条可治理的查询链路：
 
-当前项目已经具备：
+- 从真实 schema 中选择相关表与字段
+- 在跨表场景下优先使用更可靠的 join 关系
+- 在执行前进行只读校验与受控验证
+- 返回 SQL、结果、执行摘要与调试线索，便于审查与迭代
 
-- 前后端分离的演示工作区
-- `/api/query` 与 `/api/health` 两个基础接口
-- 基于关键词的示例 SQL 返回逻辑
-- 可继续接入 LangGraph、Schema RAG、SQL 校验与执行链路的后端分层结构
-
-> 当前阶段仍以 mock 能力为主，适合作为真实 NL2SQL 系统的骨架，而不是最终形态。
+当前仓库已经不再只是一个首页演示壳。它包含实际的 LangGraph 查询流、schema catalog、relation 注入、join guidance、SQL 校验与执行路径，并且正在沿着企业化方向持续补强。
 
 ---
 
-## 核心体验
+## 当前能力边界
 
-| 模块 | 当前能力 | 说明 |
+### 已具备
+
+- LangGraph 驱动的 NL2SQL 工作流
+- 基于真实 schema catalog 的表选择与 schema context 渲染
+- 关系感知的跨表上下文注入
+- join hint / confidence / cross-table diff 等联表辅助信息
+- 只读 SQL 校验与 MySQL EXPLAIN 预检路径
+- SQL 执行结果返回：`rows`、`columns`、`row_count`、`execution_summary`
+- 前端工作台可展示 SQL、参数、结果集与调试信息
+
+### 当前仍在完善
+
+- 更强的 schema retrieval 与业务语义覆盖
+- 更稳健的 value grounding 与自然语言约束解析
+- 更严格的权限、审计、可观测性与回归体系
+- 更成熟的生产级安全策略与发布流程
+
+### 诚实说明
+
+- 默认 LLM 模式仍可运行在 `mock`/fallback 路径，便于本地开发与稳定测试。
+- 项目定位已经转向企业级 SQL Agent，但当前仓库仍处于“在建系统”阶段，而不是已经完整交付的生产平台。
+- README 会优先说明当前真实能力与明确边界，而不是用空泛的“enterprise-ready”口号掩盖现状。
+
+---
+
+## 为什么这个项目值得关注
+
+| 维度 | 当前做法 | 价值 |
 | --- | --- | --- |
-| 自然语言输入 | 已完成 | 支持直接输入中文业务问题 |
-| SQL 结果展示 | 已完成 | 同页展示 SQL、状态、说明 |
-| 后端查询接口 | 已完成 | FastAPI 提供 `/api/query` |
-| 健康检查 | 已完成 | FastAPI 提供 `/api/health` |
-| 智能生成链路 | 初始骨架 | 目录已拆分为 agent、rag、validator、services |
-| 真实模型接入 | 待扩展 | 当前默认使用 mock provider |
+| 架构边界 | `routers / services / agent / rag / validator / database / prompts` 分层 | 避免把生成、校验、执行混在一起 |
+| 联表可靠性 | schema relation、join hint、cross-table diff、relation confidence | 降低脏字段、通用字段、废弃式字段被误选为 join key 的概率 |
+| 安全边界 | 只读校验、受控 EXPLAIN、执行器二次校验 | 保持生成与执行边界清晰 |
+| 结果可审查 | API 返回 SQL、参数、结果、摘要、错误与 debug | 便于人工 review、回归与诊断 |
+| 演进方向 | 真实执行、schema grounding、cross-table reasoning、observability | 与企业 SQL Agent 的实际落地方向一致 |
 
 ---
 
-## 页面与交互亮点
+## 联表可靠性路线
 
-```text
-一句自然语言问题
-        │
-        ▼
-前端演示工作区
-  - 输入问题
-  - 提交请求
-  - 展示 SQL / 状态 / 说明
-        │
-        ▼
-FastAPI /api/query
-        │
-        ▼
-AgentService
-  - 当前返回示例 SQL
-  - 后续可接入 LLM / RAG / 校验 / 执行
-```
+本仓库当前任务的核心之一，是把“能生成 join”推进到“更可靠地选择 join key”。
 
-一个典型输入示例：
+### Stage 1：止血，已实现
 
-```text
-找出近 90 天收入最高的 10 位客户。
-```
+当前版本已经落地第一阶段联表可靠性增强，重点是避免模型优先使用低质量、低语义、易误连的字段：
 
-当前示例输出风格：
+- 基于 live schema 生成 `table_relations`、`routing_suggestions`、`table_profiles`、`multi_hop_paths`
+- 在 schema context 中显式注入 `Relations`、`hint`、`confidence`
+- 对跨表重名字段补充 `cross_table_diff`，提示哪些字段不要默认作为 JOIN 键
+- 优先保留业务主编号、外键等更可靠的关联键
+- 降低时间字段、状态字段、名称字段、审计字段被盲目同名联表的概率
 
-```sql
-SELECT *
-FROM customers
-WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'
-LIMIT 100;
-```
+### Stage 2：半自动增强，路线图
+
+下一阶段将继续补：
+
+- join key ranking 与更细粒度的 relation scoring
+- 基于样本值/分布的半自动关系校验
+- 对低覆盖率、高空值、高歧义字段做更强降权
+
+### Stage 3：关系质量驱动，路线图
+
+长期方向包括：
+
+- 面向真实数据库统计与质量信号的 relation governance
+- 更严格的 join path selection 与多跳联表控制
+- 权限、审计、观测、评测共同参与联表质量闭环
 
 ---
 
-## 技术栈
-
-| 层级 | 技术 |
-| --- | --- |
-| 前端 | Vue 3、TypeScript、Vite |
-| 后端 | FastAPI、Pydantic Settings |
-| 智能体编排 | LangGraph、LangChain Core |
-| 数据访问 | SQLAlchemy、aiosqlite |
-| 缓存预留 | Redis |
-| 测试 | pytest |
-| Python 环境 | Python 3.12、uv |
-
----
-
-## 架构视图
+## 一次请求的主链路
 
 ```mermaid
 graph LR
-    A[浏览器 / Vue 3 工作区] --> B[Vite Dev Server :4242]
-    B -->|代理 /api| C[FastAPI :8787]
-    C --> D[Router]
-    D --> E[AgentService]
-    E --> F[Mock SQL 结果]
-    E -. 后续扩展 .-> G[LLM Service]
-    E -. 后续扩展 .-> H[Schema RAG]
-    E -. 后续扩展 .-> I[SQL Validator]
-    E -. 后续扩展 .-> J[SQL Executor]
+    A[Question] --> B[FastAPI /api/query]
+    B --> C[AgentService]
+    C --> D[load_schema_catalog]
+    D --> E[intent_parser]
+    E --> F[schema_retriever]
+    F --> G[sql_generator]
+    G --> H[sql_validator]
+    H --> I[value_validator]
+    I --> J[sql_executor]
+    J --> K[result_formatter]
 ```
 
----
+这条链路背后的原则是：
 
-## 目录结构
-
-```text
-SQLAgent/
-├─ frontend/
-│  ├─ src/
-│  │  └─ App.vue           # 演示工作区界面
-│  ├─ package.json
-│  └─ vite.config.ts       # 本地开发端口与 /api 代理
-├─ backend/
-│  ├─ app/
-│  │  ├─ main.py           # FastAPI 应用入口
-│  │  ├─ routers/          # API 路由
-│  │  ├─ services/         # 业务服务
-│  │  ├─ agent/            # 智能体编排骨架
-│  │  ├─ rag/              # Schema / 检索能力预留
-│  │  ├─ validator/        # SQL 校验能力预留
-│  │  ├─ database/         # 数据库引擎与会话
-│  │  └─ prompts/          # Prompt 与 few-shot 数据
-│  ├─ dev.py               # 本地开发启动脚本
-│  ├─ pyproject.toml
-│  └─ .env.example
-└─ README.md
-```
+1. 先做 schema grounding，再做 SQL 生成
+2. 先做只读与可执行性校验，再做执行
+3. 执行失败返回结构化结果，而不是把异常直接泄露给客户端
 
 ---
 
@@ -141,13 +126,13 @@ cp .env.example .env
 uv run dev.py
 ```
 
-后端默认运行在：
+后端默认地址：
 
 ```text
 http://127.0.0.1:8787
 ```
 
-健康检查地址：
+健康检查：
 
 ```text
 http://127.0.0.1:8787/api/health
@@ -161,121 +146,196 @@ pnpm install
 pnpm dev
 ```
 
-前端默认运行在：
+前端默认地址：
 
 ```text
-http://localhost:4242
+http://127.0.0.1:4242
 ```
 
-Vite 已将 `/api` 请求代理到后端 `127.0.0.1:8787`，因此前端开发时无需手动处理跨域。
+前端 `/api` 已代理到后端 `http://127.0.0.1:8787`。
 
----
-
-## 当前接口
-
-### `GET /api/health`
-
-用于健康检查。
-
-返回示例：
-
-```json
-{
-  "status": "ok",
-  "service": "nl2sql-backend"
-}
-```
-
-### `POST /api/query`
-
-根据自然语言问题生成 SQL。
+### 3. 发起一次查询
 
 请求示例：
 
 ```json
 {
-  "question": "找出近 90 天收入最高的 10 位客户。"
+  "question": "查询近 90 天成交额最高的前 10 个客户"
 }
 ```
 
-当前响应会返回：
+当前 API 会返回：
 
 - `sql`
-- `explanation`
+- `params`
 - `status`
+- `explanation`
+- `rows`
+- `columns`
+- `row_count`
+- `execution_summary`
+- `error_message`
+- `debug`
+
+`status` 当前语义：
+
+- `ready`：真实模型或可执行主路径完成
+- `mock`：使用回退生成路径
+- `error`：校验、schema 读取或执行阶段失败
 
 ---
 
-## 当前开发状态
+## 示例输出
 
-- [x] 前端演示页已完成
-- [x] 后端基础 API 已完成
-- [x] 本地联调链路已打通
-- [x] 示例 SQL 生成逻辑已接入
-- [x] 初级教学型 SQLAgent 链路已初始化（fallback + LangGraph + SQL 校验）
-- [ ] 真实 LLM Provider 接入
-- [ ] Schema RAG 检索增强
-- [ ] SQL 校验与安全约束完善
-- [ ] 真实数据库执行与结果回显
+```sql
+SELECT `customer_name`, SUM(`amount`) AS `total_amount`
+FROM `orders`
+WHERE `created_at` >= DATE_SUB(CURRENT_DATE, INTERVAL 90 DAY)
+GROUP BY `customer_name`
+ORDER BY `total_amount` DESC
+LIMIT 10;
+```
 
----
+返回结果会在前端工作台中同时展示：
 
-## 新手学习路线
+- SQL 文本
+- 参数列表
+- 表格结果
+- 执行摘要
+- 调试信息
 
-如果你是第一次做 Agent 项目，推荐按下面这条顺序学习：
-
-1. **Stage 1：单 Agent 最小闭环**：先跑通 mock 模式，看懂 `/api/query -> AgentService -> LangGraph -> Validator`。
-2. **Stage 2：真正的 SQLAgent**：开始理解 schema、prompt、few-shot、SQL 生成质量。
-3. **Stage 3：企业级能力**：重点学习 SQL 安全、真实执行、权限、审计、观测。
-4. **Stage 4：多智能体演进**：等单 Agent 稳定后，再思考 planner / retriever / validator / executor 的角色拆分。
-5. 最后再去阅读 `docs/BEGINNER_SQLAGENT_ROADMAP.md`，按阶段逐步推进，并完成每个 Stage 的实操作业与验收标准。
-
-一句话概括这条路线：
-
-> **先学会一个 Agent 怎么工作，再学 SQLAgent 怎么可靠落地，最后再学多智能体怎么协作。**
-
-### 学习文档导航
-
-如果你不知道先看哪份文档，可以按这个顺序：
-
-1. [`docs/BEGINNER_SQLAGENT_ROADMAP.md`](docs/BEGINNER_SQLAGENT_ROADMAP.md)：仓库内主学习路线，适合先理解整体阶段。
-2. [`docs/BEGINNER_SQLAGENT_4_WEEK_PLAN.md`](docs/BEGINNER_SQLAGENT_4_WEEK_PLAN.md)：按周推进的实操版学习计划，适合直接照着练。
-3. [`docs/AGENT_LEARNING_TODO.md`](docs/AGENT_LEARNING_TODO.md)：结合外部官方路线与本仓库现状整理出的进阶 TODO，尤其适合后续补企业级与多智能体学习。
+这使得 SQLAgent 更适合做企业技术评估、prompt/schema 调试和回归验证，而不是只看一句“模型回答”。
 
 ---
 
-## 为什么这个项目适合作为骨架
+## 目录结构
 
-这个仓库并不是把所有能力都堆在一起，而是提前拆出了清晰的扩展边界：
+```text
+SQLAgent/
+├─ frontend/
+│  ├─ src/
+│  │  └─ App.vue
+│  ├─ package.json
+│  └─ README.md
+├─ backend/
+│  ├─ app/
+│  │  ├─ main.py
+│  │  ├─ routers/
+│  │  ├─ services/
+│  │  ├─ agent/
+│  │  ├─ rag/
+│  │  ├─ validator/
+│  │  ├─ database/
+│  │  └─ prompts/
+│  ├─ tests/
+│  ├─ pyproject.toml
+│  └─ README.md
+├─ docs/
+└─ README.md
+```
 
-- `services/` 负责业务编排
-- `agent/` 负责智能体流转骨架
-- `rag/` 负责模式知识与检索增强
-- `validator/` 负责 SQL 安全与合法性检查
-- `database/` 负责连接、会话与执行能力
-- `prompts/` 负责提示词与示例管理
+### 后端职责划分
 
-这种分层方式更适合逐步把“演示项目”升级成“可落地系统”。
+- `routers/`：HTTP 边界与响应合同
+- `services/`：服务编排与依赖注入
+- `agent/`：LangGraph 状态、节点与流转
+- `rag/`：schema catalog、检索、业务语义增强
+- `validator/`：SQL 安全校验
+- `database/`：执行器、引擎、会话与结果归一化
+- `prompts/`：提示词与 few-shot 数据
 
 ---
 
-## 开发建议
+## 技术栈
 
-如果你准备继续往真实 NL2SQL 方向推进，推荐按这个顺序演进：
+| 层级 | 技术 |
+| --- | --- |
+| 前端 | Vue 3、TypeScript、Vite |
+| 后端 | FastAPI、Pydantic Settings |
+| 智能体编排 | LangGraph、LangChain Core |
+| 数据访问 | SQLAlchemy Async |
+| 默认本地数据库 | SQLite / aiosqlite |
+| 测试 | pytest |
+| Python 环境 | Python 3.12、uv |
 
-1. 接入真实 LLM provider，替换当前 mock 输出
-2. 为表结构、字段语义、业务术语建立 Schema RAG
-3. 增加 SQL validator，限制危险语句与越权访问
-4. 接入真实数据库执行器，返回结果与解释说明
-5. 为常见问题补充 few-shot 示例与测试用例
+---
+
+## 开发命令
+
+### Backend
+
+```bash
+cd backend
+uv sync
+uv run dev.py
+uv run pytest
+```
+
+### Frontend
+
+```bash
+cd frontend
+pnpm install
+pnpm dev
+pnpm build
+```
+
+---
+
+## 文档导航
+
+### 首先阅读
+
+- [`README.md`](./README.md)：项目定位、能力边界、架构与快速开始
+- [`docs/NL2SQL_AGENT_IMPLEMENTATION_TODO.md`](./docs/NL2SQL_AGENT_IMPLEMENTATION_TODO.md)：面向实现的工程化待办与优先级
+
+### 补充学习材料
+
+以下文档保留为补充学习资源，不再承担仓库首页主叙事：
+
+- [`docs/BEGINNER_SQLAGENT_ROADMAP.md`](./docs/BEGINNER_SQLAGENT_ROADMAP.md)
+- [`docs/BEGINNER_SQLAGENT_4_WEEK_PLAN.md`](./docs/BEGINNER_SQLAGENT_4_WEEK_PLAN.md)
+- [`docs/AGENT_LEARNING_TODO.md`](./docs/AGENT_LEARNING_TODO.md)
+
+如果你是第一次接触 Agent / LangGraph / SQLAgent，这些文档仍然有帮助；如果你是来评估项目能力与工程方向，应优先看本 README 与实现路线文档。
+
+---
+
+## 当前路线图
+
+### 已完成
+
+- 前后端工作台与 `/api/query` 查询入口
+- schema catalog 加载与 relation-aware schema context
+- Stage 1 联表可靠性止血方案
+- 只读 SQL 校验、结构化执行结果与错误摘要
+- 基于 LangGraph 的多阶段查询主链路
+
+### 进行中
+
+- 更强 schema retrieval 与业务语义覆盖
+- 更稳健的 value validation 与 SQL 修复重试
+- 更丰富的调试、评测与回归能力
+
+### 后续重点
+
+1. 更可靠的真实执行与结果返回质量
+2. 更强的 schema retrieval 与 cross-table reasoning
+3. 更严格的 SQL 安全边界与权限治理
+4. 更完整的 observability、evaluation 与 regression coverage
 
 ---
 
 ## 适合的使用场景
 
-- NL2SQL 产品原型演示
-- 智能查询工作台雏形
-- LLM 到 SQL 的接口验证
-- RAG / LangGraph / SQL 安全链路实验
+- 企业 SQL Agent 方案评估与 PoC
+- 中文业务查询工作台
+- schema-grounded NL2SQL 实验平台
+- join reliability / SQL safety / execution flow 迭代验证
+- 面向真实数据库接入前的治理边界设计
 
 ---
+
+## 许可证
+
+当前仓库未在本 README 中额外声明许可证信息；如需对外发布，请以仓库实际许可证文件为准。

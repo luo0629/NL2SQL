@@ -1,0 +1,7 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Quality gate for backend contracts and focused tests"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify graph retry and execution failure behavior stays compliant"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify schema metadata and read-only execution constraints"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Check operational logging changes remain compliant"}
+{"file": ".trellis/tasks/05-10-enterprise-join-readme/research/readme-style.md", "reason": "Validate README rewrite against researched structure and presentation patterns"}
+{"file": ".trellis/tasks/05-10-enterprise-join-readme/research/enterprise-positioning.md", "reason": "Validate enterprise-facing docs language against researched norms"}

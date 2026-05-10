@@ -283,6 +283,43 @@ def test_schema_context_marks_ids_as_join_internal_but_keeps_them_visible() -> N
     assert "`flavor`.`dish_id` -> `dish`.`id`" in state["schema_context"]
 
 
+def test_schema_context_exposes_cross_table_diff_guidance() -> None:
+    catalog = attach_business_semantics(SchemaCatalog(
+        database="test_db",
+        tables=[
+            SchemaTable(
+                name="orders",
+                columns=[
+                    SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, cross_table_diff="业务主编号，可作为跨表关联键", semantic_role="dimension"),
+                ],
+            ),
+            SchemaTable(
+                name="payments",
+                columns=[
+                    SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, cross_table_diff="业务主编号，可作为跨表关联键", semantic_role="dimension"),
+                ],
+            ),
+        ],
+        relations=[
+            SchemaRelation(
+                from_table="payments",
+                from_column="order_no",
+                to_table="orders",
+                to_column="order_no",
+                relation_type="inferred-shared-key",
+                confidence="medium",
+                join_hint="优先按业务主编号联表",
+            )
+        ],
+    ))
+
+    state = schema_retriever({"question": "查询订单付款", "relevant_tables": ["orders", "payments"]}, catalog)
+
+    assert "cross_table_diff=业务主编号，可作为跨表关联键" in state["schema_context"]
+    assert "confidence=medium" in state["schema_context"]
+    assert "hint=优先按业务主编号联表" in state["schema_context"]
+
+
 def test_sql_generation_prompt_guides_field_matching_rules() -> None:
     prompt = agent_nodes._build_sql_generation_prompt({
         "question": "查询起售菜品名称包含牛肉的记录",
@@ -293,6 +330,7 @@ def test_sql_generation_prompt_guides_field_matching_rules() -> None:
 
     assert "带 enum_mapping/枚举对照的字段必须使用精确匹配" in prompt
     assert "匹配值只能来自 schema_context 中该字段的 enum_mapping" in prompt
+    assert "JOIN 规则：优先使用 schema_context 中 Relations、Table Relations、hint、confidence 明确推荐的联表键" in prompt
     assert "名称类字符串字段" in prompt
     assert "默认使用 LIKE 模糊匹配" in prompt
     assert "字段类型或业务含义不确定时，优先使用 LIKE" in prompt

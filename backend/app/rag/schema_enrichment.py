@@ -16,6 +16,7 @@ class TableEnrichment(BaseModel):
 class ColumnEnrichment(BaseModel):
     business_terms: list[str] = Field(default_factory=list)
     semantic_role: str | None = None
+    cross_table_diff: str | None = None
 
 
 class RelationEnrichment(BaseModel):
@@ -68,10 +69,12 @@ def _build_enrichment_from_config() -> SchemaEnrichment:
             col_key = _normalize_key(column_name)
             business_terms = field_data.get("business_terms", []) or []
             semantic_role = field_data.get("semantic_role")
-            if business_terms or semantic_role:
+            cross_table_diff = field_data.get("cross_table_diff")
+            if business_terms or semantic_role or cross_table_diff:
                 table_columns[col_key] = ColumnEnrichment(
                     business_terms=business_terms,
                     semantic_role=semantic_role,
+                    cross_table_diff=cross_table_diff,
                 )
         if table_columns:
             column_enrichments[table_key] = table_columns
@@ -102,7 +105,15 @@ def _build_enrichment_from_config() -> SchemaEnrichment:
 
 
 def _normalize_key(value: str) -> str:
-    return value.strip().lower()
+    return value.strip().lower().replace("`", "")
+
+
+def _table_key_candidates(value: str) -> list[str]:
+    normalized = _normalize_key(value)
+    if "." not in normalized:
+        return [normalized]
+    short_name = normalized.rsplit(".", 1)[-1]
+    return [normalized, short_name]
 
 
 def _relation_key(from_table: str, from_column: str, to_table: str, to_column: str) -> str:
@@ -114,7 +125,15 @@ def load_schema_enrichment() -> SchemaEnrichment:
 
 
 def get_table_enrichment(enrichment: SchemaEnrichment, table_name: str) -> TableEnrichment:
-    return enrichment.table_enrichments.get(_normalize_key(table_name), TableEnrichment())
+    table_candidates = _table_key_candidates(table_name)
+    for table_key in table_candidates:
+        table_enrichment = enrichment.table_enrichments.get(table_key)
+        if table_enrichment is not None:
+            return table_enrichment
+    for existing_key, table_enrichment in enrichment.table_enrichments.items():
+        if any(existing_key.endswith(table_key) for table_key in table_candidates):
+            return table_enrichment
+    return TableEnrichment()
 
 
 def get_column_enrichment(
@@ -123,8 +142,19 @@ def get_column_enrichment(
     table_name: str,
     column_name: str,
 ) -> ColumnEnrichment:
-    table_columns = enrichment.column_enrichments.get(_normalize_key(table_name), {})
-    return table_columns.get(_normalize_key(column_name), ColumnEnrichment())
+    table_candidates = _table_key_candidates(table_name)
+    column_key = _normalize_key(column_name)
+    for table_key in table_candidates:
+        table_columns = enrichment.column_enrichments.get(table_key, {})
+        column_enrichment = table_columns.get(column_key)
+        if column_enrichment is not None:
+            return column_enrichment
+    for existing_key, table_columns in enrichment.column_enrichments.items():
+        if any(existing_key.endswith(table_key) for table_key in table_candidates):
+            column_enrichment = table_columns.get(column_key)
+            if column_enrichment is not None:
+                return column_enrichment
+    return ColumnEnrichment()
 
 
 def get_relation_enrichment(
@@ -135,5 +165,25 @@ def get_relation_enrichment(
     to_table: str,
     to_column: str,
 ) -> RelationEnrichment:
-    key = _relation_key(from_table, from_column, to_table, to_column)
-    return enrichment.relation_enrichments.get(key, RelationEnrichment())
+    from_column_key = _normalize_key(from_column)
+    to_column_key = _normalize_key(to_column)
+    from_table_candidates = _table_key_candidates(from_table)
+    to_table_candidates = _table_key_candidates(to_table)
+    for from_table_key in from_table_candidates:
+        for to_table_key in to_table_candidates:
+            key = f"{from_table_key}.{from_column_key}->{to_table_key}.{to_column_key}"
+            relation = enrichment.relation_enrichments.get(key)
+            if relation is not None:
+                return relation
+    for key, relation in enrichment.relation_enrichments.items():
+        left_key, right_key = key.split("->", 1)
+        left_table_key, left_column_key = left_key.rsplit(".", 1)
+        right_table_key, right_column_key = right_key.rsplit(".", 1)
+        if (
+            left_column_key == from_column_key
+            and right_column_key == to_column_key
+            and any(left_table_key.endswith(from_table_key) for from_table_key in from_table_candidates)
+            and any(right_table_key.endswith(to_table_key) for to_table_key in to_table_candidates)
+        ):
+            return relation
+    return RelationEnrichment()

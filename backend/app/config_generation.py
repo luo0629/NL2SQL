@@ -106,15 +106,22 @@ def _cross_table_diff(
 ) -> str:
     if len(duplicate_tables) <= 1:
         return f"仅存在于 {table_name} 表"
-    if column_name in primary_keys:
-        return f"当前表主键；该字段也出现在其他表中，需结合具体表语境区分"
-    if column_name in foreign_key_targets:
-        return f"外键字段，关联 {foreign_key_targets[column_name]}；该字段在多个表中出现，需结合具体表语境区分"
-    if column_name.endswith("_time") or column_name in {"created_at", "updated_at"}:
-        return "时间字段，在多个表中出现，但表示各自表内的时间语义"
-    if column_name in {"status", "type", "name", "remark"}:
-        return "同名通用字段，在多个表中出现，具体含义需结合当前表语境理解"
-    return "该字段在多个表中出现，具体含义需结合当前表语境理解"
+    lowered = column_name.lower()
+    normalized_primary_keys = {key.lower() for key in primary_keys}
+    normalized_foreign_key_targets = {key.lower(): value for key, value in foreign_key_targets.items()}
+    if lowered in normalized_primary_keys:
+        return "当前表主键；该字段也出现在其他表中，需结合具体表语境区分，不要跨表误用其他同名编号"
+    if lowered in normalized_foreign_key_targets:
+        return f"外键字段，关联 {normalized_foreign_key_targets[lowered]}；跨表查询优先按该关系 JOIN，不要改用其他同名业务字段"
+    if lowered.startswith("reserve") or lowered in {"deleted", "revision"}:
+        return "保留/状态控制字段，在多个表中出现；不要作为 JOIN 键，通常也不应用作业务主过滤条件"
+    if lowered in {"creator", "updater", "create_user", "update_user"}:
+        return "审计字段，在多个表中出现；不要作为 JOIN 键，除非用户明确按创建人/更新人查询"
+    if lowered.endswith("_time") or lowered in {"created_at", "updated_at", "create_time", "update_time"}:
+        return "时间字段，在多个表中出现，但表示各自表内的时间语义；不要作为 JOIN 键"
+    if lowered in {"status", "type", "name", "remark"}:
+        return "同名通用字段，在多个表中出现，具体含义需结合当前表语境理解；默认不要直接作为跨表 JOIN 键"
+    return "该字段在多个表中出现，具体含义需结合当前表语境理解；若存在明确关系提示或主业务编号，优先使用明确关系而非盲目同名 JOIN"
 
 
 def _build_relations_payload(snapshot: LiveSchemaSnapshot) -> dict[str, Any]:

@@ -276,6 +276,8 @@ def _render_table_context(table: SchemaTable, catalog: SchemaCatalog, selected_t
             attrs.append(f"role: {column.semantic_role}")
         if column.business_terms:
             attrs.append(f"terms: {', '.join(column.business_terms)}")
+        if getattr(column, "cross_table_diff", None):
+            attrs.append(f"cross_table_diff: {column.cross_table_diff}")
         lines.append(f"- {column.name} ({'; '.join(attrs)})")
 
     relations = [

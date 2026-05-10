@@ -66,6 +66,7 @@ class SchemaColumn(BaseModel):
     is_primary_key: bool = False
     default: str | None = None
     description: str | None = None
+    cross_table_diff: str | None = None
     business_terms: list[str] = Field(default_factory=list)
     semantic_role: str | None = None
 

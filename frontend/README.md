@@ -1,5 +1,34 @@
-# Vue 3 + TypeScript + Vite
+# Frontend
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+This frontend is the query workspace for SQLAgent.
+It is not a generic Vue template page anymore; it is the UI surface for sending natural-language questions and reviewing SQLAgent outputs.
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+## What it shows
+
+- natural-language input
+- generated SQL
+- query parameters
+- execution summary
+- returned rows and columns
+- debug metadata when available
+
+## Local development
+
+```powershell
+pnpm install
+pnpm dev
+```
+
+Default URL:
+
+```text
+http://127.0.0.1:4242
+```
+
+The frontend proxies `/api` requests to the backend at `http://127.0.0.1:8787` through `vite.config.ts`.
+
+## Related docs
+
+- `../README.md`
+- `../docs/NL2SQL_AGENT_IMPLEMENTATION_TODO.md`
+- `../docs/BEGINNER_SQLAGENT_ROADMAP.md`
