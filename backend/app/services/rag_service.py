@@ -289,11 +289,14 @@ def _render_table_context(table: SchemaTable, catalog: SchemaCatalog, selected_t
     if relations:
         lines.append("relations:")
         for relation in relations:
+            confidence = f"; confidence: {relation.confidence}" if relation.confidence else ""
+            score = f"; score: {relation.ranking_score:.2f}" if relation.ranking_score is not None else ""
+            validation = f"; validation: {relation.validation_summary}" if relation.validation_summary else ""
             hint = f"; hint: {relation.join_hint}" if relation.join_hint else ""
             relation_type = relation.relation_type or "relation"
             lines.append(
                 f"- {_relation_endpoint(relation.from_database, relation.from_table, relation.from_column)} -> "
-                f"{_relation_endpoint(relation.to_database, relation.to_table, relation.to_column)} ({relation_type}{hint})"
+                f"{_relation_endpoint(relation.to_database, relation.to_table, relation.to_column)} ({relation_type}{confidence}{score}{validation}{hint})"
             )
     return "\n".join(lines)
 

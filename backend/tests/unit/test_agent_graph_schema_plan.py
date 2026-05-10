@@ -309,6 +309,8 @@ def test_schema_context_exposes_cross_table_diff_guidance() -> None:
                 relation_type="inferred-shared-key",
                 confidence="medium",
                 join_hint="优先按业务主编号联表",
+                ranking_score=8.5,
+                validation_summary="sample_probe(rows=4/4; non_null=1.00/1.00; distinct=1.00/1.00; overlap=0.75)",
             )
         ],
     ))
@@ -317,7 +319,10 @@ def test_schema_context_exposes_cross_table_diff_guidance() -> None:
 
     assert "cross_table_diff=业务主编号，可作为跨表关联键" in state["schema_context"]
     assert "confidence=medium" in state["schema_context"]
+    assert "score=8.50" in state["schema_context"]
+    assert "validation=sample_probe(rows=4/4; non_null=1.00/1.00; distinct=1.00/1.00; overlap=0.75)" in state["schema_context"]
     assert "hint=优先按业务主编号联表" in state["schema_context"]
+    assert state["debug_trace"]["schema_retriever"]["relation_signals"]
 
 
 def test_sql_generation_prompt_guides_field_matching_rules() -> None:

@@ -3,6 +3,7 @@ import pytest
 from app.rag.schema_models import SchemaColumn, SchemaTable
 from app.rag.schema_sync import (
     _infer_relations_from_shared_columns,
+    _infer_relations_from_shared_columns_with_probes,
     _schema_include_tables_by_database,
     _table_names_for_schema,
     sync_schema_metadata,
@@ -104,3 +105,149 @@ def test_infer_relations_from_shared_columns_prefers_business_keys_and_skips_aud
         relation.from_column != "create_time" and relation.to_column != "create_time"
         for relation in relations
     )
+
+
+@pytest.mark.anyio
+async def test_inferred_relation_probes_promote_high_overlap_business_keys() -> None:
+    class FakeExecutor:
+        def __init__(self) -> None:
+            self.samples = {
+                ("testdb.orders", "order_no"): ["O1", "O2", "O3", "O4"],
+                ("testdb.payments", "order_no"): ["O1", "O2", "O3", "O5"],
+                ("testdb.orders", "trace_no"): ["TMP1", None, None, "TMP2"],
+                ("testdb.payments", "trace_no"): ["TMP1", "TMP1", "TMP1", None],
+            }
+            self.calls: list[tuple[str, str]] = []
+
+        async def sample_column_values(self, table: str, column: str, **_: object) -> list[object]:
+            self.calls.append((table, column))
+            return self.samples[(table, column)]
+
+    relations = await _infer_relations_from_shared_columns_with_probes(
+        [
+            SchemaTable(
+                name="orders",
+                database="testdb",
+                primary_keys=["id"],
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, description="业务订单编号", semantic_role="dimension"),
+                    SchemaColumn(name="trace_no", data_type="VARCHAR", nullable=True, description="trace number", semantic_role="dimension"),
+                ],
+            ),
+            SchemaTable(
+                name="payments",
+                database="testdb",
+                primary_keys=["id"],
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, description="业务订单编号", semantic_role="dimension"),
+                    SchemaColumn(name="trace_no", data_type="VARCHAR", nullable=True, description="trace number", semantic_role="dimension"),
+                ],
+            ),
+        ],
+        FakeExecutor(),
+        probe_enabled=True,
+        probe_top_k=4,
+        probe_sample_limit=4,
+        probe_timeout_seconds=1.0,
+    )
+
+    by_column = {relation.from_column: relation for relation in relations}
+    assert by_column["order_no"].ranking_score is not None
+    assert by_column["trace_no"].ranking_score is not None
+    assert by_column["order_no"].ranking_score > by_column["trace_no"].ranking_score
+    assert by_column["order_no"].validation_summary is not None
+    assert "sample_probe" in by_column["order_no"].validation_summary
+    assert by_column["trace_no"].confidence in {"low", "medium"}
+    assert "轻量验证" in (by_column["order_no"].join_hint or "")
+
+
+@pytest.mark.anyio
+async def test_inferred_relation_probes_respect_top_k_budget() -> None:
+    class CountingExecutor:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def sample_column_values(self, table: str, column: str, **_: object) -> list[object]:
+            self.calls += 1
+            return [f"{table}-{column}-1", f"{table}-{column}-2"]
+
+    executor = CountingExecutor()
+    await _infer_relations_from_shared_columns_with_probes(
+        [
+            SchemaTable(
+                name="orders",
+                database="testdb",
+                primary_keys=["id"],
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, description="订单编号", semantic_role="dimension"),
+                    SchemaColumn(name="invoice_no", data_type="VARCHAR", nullable=False, description="发票编号", semantic_role="dimension"),
+                    SchemaColumn(name="shipment_no", data_type="VARCHAR", nullable=False, description="物流单号", semantic_role="dimension"),
+                ],
+            ),
+            SchemaTable(
+                name="payments",
+                database="testdb",
+                primary_keys=["id"],
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, description="订单编号", semantic_role="dimension"),
+                    SchemaColumn(name="invoice_no", data_type="VARCHAR", nullable=False, description="发票编号", semantic_role="dimension"),
+                    SchemaColumn(name="shipment_no", data_type="VARCHAR", nullable=False, description="物流单号", semantic_role="dimension"),
+                ],
+            ),
+        ],
+        executor,
+        probe_enabled=True,
+        probe_top_k=1,
+        probe_sample_limit=4,
+        probe_timeout_seconds=1.0,
+    )
+
+    assert executor.calls == 2
+
+
+@pytest.mark.anyio
+async def test_inferred_relation_probes_single_candidate_pairs_too() -> None:
+    class CountingExecutor:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def sample_column_values(self, table: str, column: str, **_: object) -> list[object]:
+            self.calls += 1
+            return ["A001", "A002"]
+
+    executor = CountingExecutor()
+    relations = await _infer_relations_from_shared_columns_with_probes(
+        [
+            SchemaTable(
+                name="orders",
+                database="testdb",
+                primary_keys=["id"],
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, description="订单编号", semantic_role="dimension"),
+                ],
+            ),
+            SchemaTable(
+                name="payments",
+                database="testdb",
+                primary_keys=["id"],
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, description="订单编号", semantic_role="dimension"),
+                ],
+            ),
+        ],
+        executor,
+        probe_enabled=True,
+        probe_top_k=1,
+        probe_sample_limit=4,
+        probe_timeout_seconds=1.0,
+    )
+
+    assert executor.calls == 2
+    assert relations[0].validation_summary is not None
+    assert "sample_probe" in relations[0].validation_summary

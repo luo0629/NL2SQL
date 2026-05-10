@@ -59,6 +59,36 @@ class SQLExecutor:
     def _quote_table_name(self, table: str) -> str:
         return ".".join(self._quote_identifier(part) for part in table.split(".") if part)
 
+    async def sample_column_values(
+        self,
+        table: str,
+        column: str,
+        *,
+        order_by: list[str] | None = None,
+        limit: int = 40,
+        timeout_seconds: float | None = None,
+    ) -> list[object]:
+        table_name = self._quote_table_name(table)
+        column_name = self._quote_identifier(column)
+        order_columns = order_by or [column]
+        order_clause = ", ".join(self._quote_identifier(item) for item in order_columns if item)
+        bounded_limit = max(1, min(limit, 200))
+        sql = (
+            f"SELECT {column_name} AS value FROM {table_name} "
+            f"ORDER BY {order_clause} LIMIT {bounded_limit}"
+        )
+        execution = self._run_sample_column_values(sql)
+        if timeout_seconds is not None:
+            import asyncio
+
+            return await asyncio.wait_for(execution, timeout=timeout_seconds)
+        return await execution
+
+    async def _run_sample_column_values(self, sql: str) -> list[object]:
+        async with self.engine.connect() as connection:
+            result = await connection.execute(text(sql))
+            return [row[0] for row in result.fetchall()]
+
     async def value_exists(
         self,
         table: str,

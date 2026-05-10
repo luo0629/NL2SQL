@@ -97,6 +97,8 @@ class SchemaRelation(BaseModel):
     relation_type: str | None = None
     confidence: str | None = None
     join_hint: str | None = None
+    ranking_score: float | None = None
+    validation_summary: str | None = None
 
     @property
     def from_qualified_table(self) -> str:

@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     agent_llm_node_timeout_seconds: float = 12.0
     result_formatter_llm_timeout_seconds: float = 6.0
     sql_explain_timeout_seconds: float = 8.0
+    relation_probe_enabled: bool = True
+    relation_probe_top_k: int = 6
+    relation_probe_sample_limit: int = 40
+    relation_probe_timeout_seconds: float = 2.0
     query_execution_timeout_seconds: float = 25.0
     agent_request_timeout_seconds: float = 55.0
     llm_temperature: float = 0.0

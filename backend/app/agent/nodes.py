@@ -498,6 +498,10 @@ def _selected_join_relations(selected_table_names: set[str], catalog: SchemaCata
             description += f" ({relation.relation_type})"
         if relation.confidence:
             description += f" [confidence={relation.confidence}]"
+        if relation.ranking_score is not None:
+            description += f" [score={relation.ranking_score:.2f}]"
+        if relation.validation_summary:
+            description += f" [validation={relation.validation_summary}]"
         if relation.join_hint:
             description += f" [{relation.join_hint}]"
         relations.append(description)
@@ -715,11 +719,13 @@ def _format_table_schema(
         lines.append("Relations:")
         for relation in relations:
             confidence = f"; confidence={relation.confidence}" if relation.confidence else ""
+            score = f"; score={relation.ranking_score:.2f}" if relation.ranking_score is not None else ""
+            validation = f"; validation={relation.validation_summary}" if relation.validation_summary else ""
             hint = f"; hint={relation.join_hint}" if relation.join_hint else ""
             lines.append(
                 f"- {_relation_endpoint(relation.from_database, relation.from_table, relation.from_column)} -> "
                 f"{_relation_endpoint(relation.to_database, relation.to_table, relation.to_column)}"
-                f" ({relation.relation_type or 'relation'}{confidence}{hint})"
+                f" ({relation.relation_type or 'relation'}{confidence}{score}{validation}{hint})"
             )
     return "\n".join(lines)
 
@@ -859,6 +865,7 @@ def schema_retriever(state: AgentState, catalog: SchemaCatalog | None = None) ->
         "schema_context_chars": len(schema_context),
         "semantic_context_chars": len(semantic_context),
         "relations_overview_chars": len(relations_overview),
+        "relation_signals": join_relations[:12],
     }
     return {
         "schema_context": schema_context,

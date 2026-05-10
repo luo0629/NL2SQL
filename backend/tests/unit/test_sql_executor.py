@@ -120,6 +120,24 @@ async def test_sql_executor_value_probe_quotes_identifiers() -> None:
 
 
 @pytest.mark.anyio
+async def test_sql_executor_samples_column_values_with_stable_order() -> None:
+    engine: AsyncEngine = create_async_engine("sqlite+aiosqlite:///:memory:")
+
+    async with engine.begin() as connection:
+        await connection.exec_driver_sql("CREATE TABLE probe_table (id INTEGER, order_no TEXT)")
+        await connection.exec_driver_sql("INSERT INTO probe_table (id, order_no) VALUES (2, NULL)")
+        await connection.exec_driver_sql("INSERT INTO probe_table (id, order_no) VALUES (1, 'A001')")
+        await connection.exec_driver_sql("INSERT INTO probe_table (id, order_no) VALUES (3, 'A003')")
+
+    executor = SQLExecutor(engine=engine)
+    values = await executor.sample_column_values("probe_table", "order_no", order_by=["id"], limit=3)
+
+    assert values == ["A001", None, "A003"]
+
+    await engine.dispose()
+
+
+@pytest.mark.anyio
 async def test_sql_executor_blocks_dangerous_sql() -> None:
     engine: AsyncEngine = create_async_engine("sqlite+aiosqlite:///:memory:")
     executor = SQLExecutor(engine=engine)
