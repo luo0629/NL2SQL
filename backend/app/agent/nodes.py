@@ -486,6 +486,40 @@ def _expand_selected_tables_with_relations(selected: list[str], catalog: SchemaC
     return expanded[:limit]
 
 
+def _selected_join_relations(selected_table_names: set[str], catalog: SchemaCatalog | None) -> list[str]:
+    if catalog is None:
+        return []
+    relations: list[str] = []
+    for relation in catalog.relations:
+        if relation.from_qualified_table not in selected_table_names or relation.to_qualified_table not in selected_table_names:
+            continue
+        description = f"{relation.from_qualified_table}.{relation.from_column} -> {relation.to_qualified_table}.{relation.to_column}"
+        if relation.relation_type:
+            description += f" ({relation.relation_type})"
+        if relation.join_hint:
+            description += f" [{relation.join_hint}]"
+        relations.append(description)
+    return relations
+
+
+def _rank_table_candidates(question: str, catalog: SchemaCatalog | None, limit: int = 6) -> list[str]:
+    tables = _catalog_tables(catalog)
+    if not tables:
+        return []
+    semantics = _catalog_semantics(catalog)
+    scored = [(_table_identity(table), _table_score(question, table, semantics), index) for index, table in enumerate(tables)]
+    ranked = sorted(scored, key=lambda item: (-item[1], item[2]))
+    visible = [item for item in ranked if item[1] > 0] or ranked[:limit]
+    return [f"{name}:{score}" for name, score, _index in visible[:limit]]
+
+
+def _sql_preview(sql: str, limit: int = 200) -> str:
+    normalized = " ".join(sql.split())
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[:limit]}..."
+
+
 def _fallback_relevant_tables(question: str, catalog: SchemaCatalog | None, limit: int = 4) -> list[str]:
     tables = _catalog_tables(catalog)
     if not tables:
@@ -538,8 +572,11 @@ def _build_intent_result(
     table_names = [_table_identity(table) for table in _catalog_tables(catalog)]
     table_lookup = _build_table_lookup(_catalog_tables(catalog))
     fallback_tables = _fallback_relevant_tables(question, catalog)
+    candidate_scores = _rank_table_candidates(question, catalog)
     intent = f"查询需求：{question}" if question else "查询数据库信息"
     relevant_tables = fallback_tables
+    requested_tables: list[str] = []
+    filtered_tables: list[str] = []
 
     if payload is not None:
         candidate_intent = payload.get("intent")
@@ -547,11 +584,28 @@ def _build_intent_result(
             intent = candidate_intent.strip()
         raw_tables = payload.get("relevant_tables", [])
         if isinstance(raw_tables, list):
-            filtered = [_table_identity(table_lookup[str(item).strip()]) for item in raw_tables if str(item).strip() in table_lookup]
-            if filtered:
-                relevant_tables = _expand_selected_tables_with_relations(list(dict.fromkeys(filtered))[:4], catalog, limit=4)
+            requested_tables = [str(item).strip() for item in raw_tables if str(item).strip()]
+            filtered_tables = [
+                _table_identity(table_lookup[name])
+                for name in requested_tables
+                if name in table_lookup
+            ]
+            if filtered_tables:
+                relevant_tables = _expand_selected_tables_with_relations(list(dict.fromkeys(filtered_tables))[:4], catalog, limit=4)
 
     semantic_signals = _semantic_matches(question, _catalog_semantics(catalog), set(relevant_tables))
+    join_relations = _selected_join_relations(set(relevant_tables), catalog)
+    logger.info(
+        "agent.intent_parser.selection source=%s relevant_tables=%s requested_tables=%s filtered_tables=%s candidate_scores=%s semantic_signals=%s join_relations=%s llm_error=%s",
+        source,
+        relevant_tables,
+        requested_tables,
+        filtered_tables,
+        candidate_scores,
+        [signal.get("term") for signal in semantic_signals],
+        join_relations,
+        llm_error,
+    )
     debug_trace = dict(state.get("debug_trace", {}))
     debug_trace["intent_parser"] = {
         "source": source,
@@ -773,14 +827,11 @@ def schema_retriever(state: AgentState, catalog: SchemaCatalog | None = None) ->
         selected_tables = _catalog_tables(catalog)[:4]
     selected_table_names = {_table_identity(table) for table in selected_tables}
 
-    # Build table relations overview from YAML config
     relations_overview = _build_table_relations_overview(selected_table_names)
-
     table_schemas = "\n\n".join(
         _format_table_schema(table, catalog, selected_table_names)
         for table in selected_tables
     )
-    # Prepend relations overview before individual table schemas
     schema_context = f"{relations_overview}\n\n{table_schemas}" if relations_overview else table_schemas
 
     semantic_context = _render_semantic_context(
@@ -788,14 +839,22 @@ def schema_retriever(state: AgentState, catalog: SchemaCatalog | None = None) ->
         selected_table_names,
         _question_text(state),
     )
+    matched_table_names = [_table_identity(table) for table in selected_tables]
+    join_relations = _selected_join_relations(selected_table_names, catalog)
+    logger.info(
+        "agent.schema_retriever.selection tables=%s join_relations=%s schema_context_chars=%s semantic_context_chars=%s",
+        matched_table_names,
+        join_relations,
+        len(schema_context),
+        len(semantic_context),
+    )
     debug_trace = dict(state.get("debug_trace", {}))
     debug_trace["schema_retriever"] = {
-        "tables": [_table_identity(table) for table in selected_tables],
+        "tables": matched_table_names,
         "schema_context_chars": len(schema_context),
         "semantic_context_chars": len(semantic_context),
         "relations_overview_chars": len(relations_overview),
     }
-    matched_table_names = [_table_identity(table) for table in selected_tables]
     return {
         "schema_context": schema_context,
         "semantic_context": semantic_context,
@@ -882,6 +941,15 @@ def _build_sql_generator_result(
         used_fallback = True
         status = "mock"
 
+    logger.info(
+        "agent.sql_generator.selection retry_count=%s used_fallback=%s relevant_tables=%s validation_error=%s sql_preview=%s llm_error=%s",
+        state.get("retry_count", 0),
+        used_fallback,
+        state.get("relevant_tables", []),
+        state.get("validation_error", ""),
+        _sql_preview(generated_sql),
+        llm_error,
+    )
     debug_trace = dict(state.get("debug_trace", {}))
     debug_trace["sql_generator"] = {
         "retry_count": state.get("retry_count", 0),

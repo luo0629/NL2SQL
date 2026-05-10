@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -251,6 +252,25 @@ def test_schema_retriever_keeps_join_relations_in_schema_context() -> None:
     assert "Business semantics:" not in state["schema_context"]
     assert "Relations:" in state["schema_context"]
     assert "`flavor`.`dish_id` -> `dish`.`id`" in state["schema_context"]
+
+
+def test_intent_parser_logs_table_selection(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO):
+        state = intent_parser({"question": "查询起售菜品前三名"}, FakeLLMService(), _make_dish_catalog())
+
+    assert state["relevant_tables"] == ["dish"]
+    assert "agent.intent_parser.selection" in caplog.text
+    assert "relevant_tables=['dish']" in caplog.text
+    assert "candidate_scores=['dish:" in caplog.text
+
+
+def test_schema_retriever_logs_join_relations(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO):
+        state = schema_retriever({"question": "查询菜品口味", "relevant_tables": ["dish", "flavor"]}, _make_dish_catalog())
+
+    assert "agent.schema_retriever.selection" in caplog.text
+    assert "flavor.dish_id -> dish.id (many-to-one)" in caplog.text
+    assert state["relevant_tables"] == ["dish", "flavor"]
 
 
 def test_schema_context_marks_ids_as_join_internal_but_keeps_them_visible() -> None:
