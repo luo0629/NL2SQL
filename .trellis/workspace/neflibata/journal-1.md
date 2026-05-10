@@ -369,3 +369,36 @@ Added terminal-visible agent decision logs for table selection, join relation se
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: Fix Trellis finish-work gitignore issue
+
+**Date**: 2026-05-10
+**Task**: Fix Trellis finish-work gitignore issue
+**Branch**: `main`
+
+### Summary
+
+Allowed .trellis/workspace and .trellis/tasks in .gitignore so Trellis finish-work can stage workspace and task files without hitting ignored-path errors.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e873142` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
