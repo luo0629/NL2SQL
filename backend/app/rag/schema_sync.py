@@ -5,6 +5,7 @@ import logging
 from app.config import get_settings
 from app.database.executor import SQLExecutor
 from app.rag.business_semantics import attach_business_semantics
+from app.rag.schema_governance import build_relationship_graph_artifact
 from app.rag.schema_enrichment import (
     get_column_enrichment,
     get_relation_enrichment,
@@ -767,10 +768,17 @@ async def sync_schema_metadata() -> SchemaCatalog:
         relations=relations,
         synced_at=datetime.now(timezone.utc).isoformat(),
     )
-    return attach_business_semantics(
+    catalog = attach_business_semantics(
         catalog,
         settings.business_semantic_override_path,
         yaml_enabled=settings.business_semantic_yaml_enabled,
         database_url=settings.schema_scope_key,
         yaml_dir=settings.business_semantic_yaml_dir,
     )
+    catalog.relationship_graph = build_relationship_graph_artifact(
+        catalog,
+        scope_key=settings.schema_scope_key,
+        artifact_dir=settings.schema_governance_artifact_dir,
+        generated_at=catalog.synced_at,
+    )
+    return catalog

@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     business_semantic_yaml_enabled: bool = False
     business_semantic_yaml_dir: str = str(PROJECT_ROOT / "yaml")
     business_semantic_override_path: str | None = None
+    schema_governance_artifact_dir: str = str(PROJECT_ROOT / "artifacts" / "schema_governance")
     config_dir: str = str(PROJECT_ROOT / "backend" / "config")
     # Schema 变更检测（轮询 INFORMATION_SCHEMA）
     schema_watcher_enabled: bool = False
