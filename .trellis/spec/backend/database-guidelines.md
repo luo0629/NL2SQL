@@ -185,11 +185,14 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Schema relation sources: `schema_sync.sync_schema_metadata()` must build `SchemaCatalog.relations` in this precedence order: live foreign keys -> validated `table_relations.yaml` overrides -> inferred shared-key relations from live schema.
 - Schema column enrichment fields: `SchemaColumn.cross_table_diff: str | None` is rendered into `schema_context` when available and is used to warn the generator away from ambiguous join candidates.
 - Stage 2 relation fields: `SchemaRelation.ranking_score: float | None` and `SchemaRelation.validation_summary: str | None` may be attached for runtime-validated join candidates.
+- Stage 3 graph fields: `SchemaCatalog.relationship_graph: RelationshipGraphArtifact | None` is reserved for offline governance artifacts and future graph-driven retrieval.
+- Stage 3 artifact models include: `ColumnGovernanceMetric`, `JoinCoverageMetric`, `RelationshipGraphNode`, `RelationshipGraphEdge`, `RelationshipGraphSummary`, `RelationshipGraphArtifact`.
 - SQL state fields: `AgentState.generated_sql: str`, `AgentState.validation_error: str`, `AgentState.previous_sql: str`, `AgentState.retry_count: int`, `AgentState.max_retries: int`.
 - Execution path: `SQLExecutor.execute(sql: str, params: list[object] | None = None, max_rows: int | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
 - EXPLAIN path: `SQLExecutor.explain(sql: str, params: list[object] | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
 - Runtime probe path: `SQLExecutor.sample_column_values(table: str, column: str, *, order_by: list[str] | None = None, limit: int = 40, timeout_seconds: float | None = None) -> list[object]`.
 - Runtime probe settings: `Settings.relation_probe_enabled`, `Settings.relation_probe_top_k`, `Settings.relation_probe_sample_limit`, `Settings.relation_probe_timeout_seconds`.
+- Governance artifact settings: `Settings.schema_governance_artifact_dir` controls where relationship graph / governance JSON artifacts are written.
 
 ### 3. Contracts
 
@@ -202,6 +205,10 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Stage 2 runtime validation must remain metadata-first: probe only a bounded top-K set of plausible candidates after metadata filtering, not every same-name field in the schema.
 - Runtime probes must stay read-only, deterministic, and bounded: use `ORDER BY + LIMIT`, sample endpoint columns rather than full join outputs, and keep probe results in relation metadata / `schema_context` / `debug_trace` instead of reshaping the graph contract.
 - Even when a table pair has only one shared-key candidate, it should still be eligible for runtime probing if it falls within the configured probe budget; otherwise high-null or low-overlap dirty keys can bypass validation.
+- Stage 3 governance artifacts must be generated from `schema_sync.sync_schema_metadata()` after schema, relations, and business semantics are available, but they must remain supporting infrastructure only; the current LangGraph node sequence and API contract stay unchanged.
+- Relationship graph artifacts must include at least: node/edge topology, column quality, join coverage, deprecated field status, summary metrics, and safe diagnostics.
+- Governance artifact filenames must use a schema-scope fingerprint rather than raw database URLs, and the JSON payload must not leak database passwords or local absolute paths.
+- In join coverage metrics, a table with zero join candidates must report `coverage_ratio = 0.0`, not `1.0`.
 - Qualified and unqualified table names (for example `jc_experimental.weituo` vs `weituo`) must both resolve against enrichment data for table, column, and relation hints.
 - `sql_generator` must generate SQL directly from `question`, `intent`, `schema_context`, `previous_sql`, `validation_error`, and `retry_count`; do not route the main path through `SemanticQuery` or `sql_plan` rendering.
 - `sql_validator` must run read-only safety checks before any database interaction, then run `EXPLAIN` only for MySQL-compatible URLs.
@@ -217,6 +224,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Candidate relation survives metadata filtering and is in runtime probe top-K -> run bounded endpoint sampling and feed signals back into `ranking_score`, `confidence`, and `validation_summary`.
 - Table pair has exactly one shared-key candidate but is within probe budget -> still probe it; do not skip runtime validation just because there is no competing sibling candidate.
 - Runtime probe uses `LIMIT` without stable ordering -> reject the design; probes must preserve deterministic `ORDER BY + LIMIT` to stay validator-compatible.
+- `schema_sync` finishes successfully -> generate / refresh the relationship graph artifact and attach it to `SchemaCatalog.relationship_graph`.
+- Governance artifact path leaks raw DB password or absolute local path -> reject the artifact design; use a fingerprinted filename and safe payload fields only.
+- Table has zero join candidates -> `JoinCoverageMetric.coverage_ratio` must be `0.0`.
 - Config override uses qualified table names while runtime lookup uses short names -> enrichment lookup must still resolve correctly.
 - Unsafe SQL -> `SQLValidator` rejects before `EXPLAIN` and before execution.
 - MySQL `EXPLAIN` failure -> set `validation_error`, increment retry count, and retry generation until `max_retries`.
@@ -226,9 +236,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 
 ### 5. Good/Base/Bad Cases
 
-- Good: LLM picks real tables, schema context includes comments/defaults plus `cross_table_diff`, shared-key joins are inferred only for credible business fields, ambiguous or risky candidates receive bounded runtime validation, and the resulting `confidence` / `validation_summary` guide SQL generation before execution.
+- Good: LLM picks real tables, schema context includes comments/defaults plus `cross_table_diff`, shared-key joins are inferred only for credible business fields, ambiguous or risky candidates receive bounded runtime validation, and `schema_sync` emits a safe relationship graph artifact with column quality / join coverage / deprecated status ready for later graph-driven retrieval.
 - Base: LLM unavailable; fallback picks real catalog tables and generates a conservative SELECT over real schema.
-- Bad: SQL is generated from a template plan, static hard-coded schema, hard-coded business-table relations, or a runtime-probe design that samples every candidate relation without budget control.
+- Bad: SQL is generated from a template plan, static hard-coded schema, hard-coded business-table relations, a runtime-probe design that samples every candidate relation without budget control, or a governance artifact that leaks connection secrets / local machine paths.
 
 ### 6. Tests Required
 
@@ -242,6 +252,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Unit/schema: runtime probes can promote higher-overlap business keys over weaker candidates and must respect `relation_probe_top_k` budget.
 - Unit/schema: single-candidate table pairs within budget still receive bounded runtime probing.
 - Unit/executor: `sample_column_values()` enforces bounded, deterministic read-only sampling.
+- Unit/governance: `schema_sync` attaches `relationship_graph` and writes a safe artifact file under `schema_governance_artifact_dir`.
+- Unit/governance: artifact JSON includes `artifact_file` self-description, summary metrics, column quality, join coverage, deprecated status, and diagnostics.
+- Unit/governance: zero-candidate tables produce `coverage_ratio == 0.0`.
 - Unit/graph: validation failure retries generation up to `max_retries=3` and never executes failed SQL.
 - Unit/integration: high-level query returns `sql`, `rows`, `columns`, `row_count`, and `execution_summary` through the existing API contract.
 
@@ -250,48 +263,41 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 #### Wrong
 
 ```python
-for candidate in all_same_name_relations:
-    candidate.validation = await expensive_full_join_scan(candidate)
+artifact = RelationshipGraphArtifact(...)
+artifact_path.write_text(artifact.model_dump_json())
+artifact.artifact_file = artifact_path.name
 ```
 
 #### Correct
 
 ```python
-candidates = metadata_filter(all_same_name_relations)
-probe_targets = pick_top_k(candidates, k=settings.relation_probe_top_k)
-for candidate in probe_targets:
-    candidate.validation = await executor.sample_column_values(...)
+artifact = RelationshipGraphArtifact(...)
+artifact.artifact_file = artifact_path.name
+artifact_path.write_text(artifact.model_dump_json())
 ```
 
 #### Wrong
 
 ```python
-if len(candidate_group) <= 1:
-    return  # no sibling candidate, so skip probe
+coverage_ratio = 1.0 if not candidate_columns else covered / total
 ```
 
 #### Correct
 
 ```python
-if candidate in top_k_budget:
-    run_bounded_runtime_probe(candidate)
+coverage_ratio = 0.0 if not candidate_columns else covered / total
 ```
 
 #### Wrong
 
 ```python
-table_enrichment = enrichment.table_enrichments[table_name]
-column_enrichment = enrichment.column_enrichments[table_name][column_name]
+catalog.relationship_graph = build_relationship_graph_artifact(...)
+graph.add_node("relationship_graph", use_relationship_graph)
 ```
 
 #### Correct
 
 ```python
-table_enrichment = get_table_enrichment(enrichment, table_name)
-column_enrichment = get_column_enrichment(
-    enrichment,
-    table_name=table_name,
-    column_name=column_name,
-)
-# Qualified and unqualified table names both resolve.
+catalog.relationship_graph = build_relationship_graph_artifact(...)
+# Keep the existing LangGraph node sequence unchanged for now.
 ```
