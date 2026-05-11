@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
+- **Total Sessions**: 17
 - **Last Active**: 2026-05-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~539 | Active |
+| `journal-1.md` | ~574 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 17 | 2026-05-11 | Govern agent strategy hardcoding | `4d71386`, `2f37cda`, `0ef393a` | `main` |
 | 16 | 2026-05-11 | Finalize bad join-key selection fix | `8fbcc98` | `main` |
 | 15 | 2026-05-10 | Stage 3 schema governance graph artifacts | `d6d5ac6`, `5d88e82` | `main` |
 | 14 | 2026-05-10 | Stage 2 join reliability runtime probes | `a453ef2`, `26eeec5`, `2e88fc5` | `main` |

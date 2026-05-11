@@ -537,3 +537,38 @@ Archived the join-key selection follow-up task after the feature work commit and
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Govern agent strategy hardcoding
+
+**Date**: 2026-05-11
+**Task**: Govern agent strategy hardcoding
+**Branch**: `main`
+
+### Summary
+
+Implemented configurable agent strategy extraction, added table-level disabled-key governance, updated backend specs, and refreshed the schema governance artifact.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4d71386` | (see git log) |
+| `2f37cda` | (see git log) |
+| `0ef393a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
