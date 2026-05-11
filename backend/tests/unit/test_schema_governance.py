@@ -135,18 +135,6 @@ async def test_sync_schema_metadata_generates_relationship_graph_artifact(monkey
         lambda: SimpleNamespace(),
     )
     monkeypatch.setattr(
-        "app.rag.schema_sync.load_value_mappings",
-        lambda: {},
-    )
-    monkeypatch.setattr(
-        "app.rag.schema_sync.get_fallback_mapping_for_column",
-        lambda *args, **kwargs: None,
-    )
-    monkeypatch.setattr(
-        "app.rag.schema_sync.merge_column_description",
-        lambda db_description, fallback_mapping: db_description,
-    )
-    monkeypatch.setattr(
         "app.rag.schema_sync.get_table_enrichment",
         lambda *args, **kwargs: SimpleNamespace(aliases=[], business_terms=[]),
     )

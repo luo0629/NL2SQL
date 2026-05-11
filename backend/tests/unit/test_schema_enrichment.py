@@ -1,3 +1,9 @@
+from pathlib import Path
+
+import yaml
+
+from app.config import get_settings
+from app.config_loader import reload_app_config
 from app.rag.schema_enrichment import (
     RelationEnrichment,
     SchemaEnrichment,
@@ -9,26 +15,68 @@ from app.rag.schema_enrichment import (
 
 
 def test_schema_enrichment_exposes_table_aliases_and_terms() -> None:
+    config_dir = Path(get_settings().config_dir)
+    (config_dir / "business_terms.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "generated": {
+                    "terms": [
+                        {
+                            "alias": "订单",
+                            "standard": "orders",
+                            "tables": ["orders"],
+                            "business_terms": ["订单表"],
+                        }
+                    ]
+                },
+                "overrides": {"terms": []},
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    reload_app_config()
     enrichment = load_schema_enrichment()
+    orders = get_table_enrichment(enrichment, "orders")
 
-    # 使用 jc_experimental.weituo 作为测试
-    weituo = get_table_enrichment(enrichment, "jc_experimental.weituo")
-
-    assert "委托" in weituo.aliases
-    assert "委托表" in weituo.business_terms
+    assert "订单" in orders.aliases
+    assert "订单表" in orders.business_terms
 
 
 def test_schema_enrichment_exposes_column_semantic_role() -> None:
+    config_dir = Path(get_settings().config_dir)
+    (config_dir / "field_semantics.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "generated": {
+                    "fields": {
+                        "orders": {
+                            "total_amount": {
+                                "business_terms": ["订单金额"],
+                                "semantic_role": "metric",
+                                "cross_table_diff": None,
+                            }
+                        }
+                    }
+                },
+                "overrides": {"fields": {}},
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    reload_app_config()
     enrichment = load_schema_enrichment()
 
-    # 使用自动生成后的 jc_experimental.weituo_settle_bill.total_fee 作为测试
-    total_fee = get_column_enrichment(
+    total_amount = get_column_enrichment(
         enrichment,
-        table_name="jc_experimental.weituo_settle_bill",
-        column_name="total_fee",
+        table_name="orders",
+        column_name="total_amount",
     )
 
-    assert total_fee.semantic_role == "metric"
+    assert total_amount.semantic_role == "metric"
 
 
 def test_schema_enrichment_exposes_relation_confidence_and_join_hint() -> None:

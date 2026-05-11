@@ -358,6 +358,18 @@ def test_yaml_enabled_loads_overrides_and_preserves_them_on_refresh(tmp_path) ->
     assert "generated:" in refreshed_text
 
 
+def test_yaml_enabled_avoids_meaningless_rewrite_when_schema_is_unchanged(tmp_path) -> None:
+    database_url = "sqlite+aiosqlite:///./semantic-refresh.db"
+    yaml_path = business_semantic_yaml_path(database_url, tmp_path)
+
+    build_business_semantics(_catalog(), yaml_enabled=True, database_url=database_url, yaml_dir=tmp_path)
+    first_text = yaml_path.read_text(encoding="utf-8")
+    build_business_semantics(_catalog(), yaml_enabled=True, database_url=database_url, yaml_dir=tmp_path)
+    second_text = yaml_path.read_text(encoding="utf-8")
+
+    assert first_text == second_text
+
+
 def test_yaml_filename_separates_databases_without_exposing_credentials(tmp_path) -> None:
     first_url = "mysql+asyncmy://user:first-secret@db.example.com:3306/tenant_a"
     second_url = "mysql+asyncmy://user:second-secret@db.example.com:3306/tenant_b"

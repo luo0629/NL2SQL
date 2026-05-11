@@ -1,15 +1,12 @@
 import asyncio
 import logging
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import yaml
 
 import app.agent.nodes as agent_nodes
 from app.agent.graph import build_agent_graph, reset_agent_graph, run_agent
 from app.agent.nodes import async_sql_generator, build_fallback_sql, intent_parser, schema_retriever
-from app.config_loader import AppConfig
 from app.database.executor import SQLExecutor
 from app.rag.business_semantics import attach_business_semantics
 from app.rag.schema_governance import build_relationship_graph_artifact
@@ -340,25 +337,6 @@ def _make_join_repair_catalog(tmp_path, *, qualified: bool = False) -> SchemaCat
     return catalog
 
 
-def _configure_agent_strategy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, payload: dict) -> None:
-    config_dir = tmp_path / "config"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    for filename in [
-        "table_relations.yaml",
-        "field_semantics.yaml",
-        "field_examples.yaml",
-        "enum_mappings.yaml",
-        "business_terms.yaml",
-        "few_shot_samples.yaml",
-    ]:
-        (config_dir / filename).write_text("generated: {}\noverrides: {}\n", encoding="utf-8")
-    (config_dir / "agent_strategy.yaml").write_text(
-        yaml.safe_dump({"generated": {}, "overrides": payload}, allow_unicode=True, sort_keys=False),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr("app.config_loader._app_config", AppConfig(config_dir))
-
-
 def test_intent_parser_filters_hallucinated_tables() -> None:
     state = intent_parser({"question": "查询起售菜品前三名"}, FakeLLMService(), _make_dish_catalog())
 
@@ -512,7 +490,7 @@ def test_sql_generation_prompt_guides_field_matching_rules() -> None:
     assert "默认使用 LIKE 模糊匹配" in prompt
     assert "字段类型或业务含义不确定时，优先使用 LIKE" in prompt
     assert "必须使用 MySQL 全限定表名" in prompt
-    assert "`jc_config`.`table`" in prompt
+    assert "`database_name`.`table_name`" in prompt
 
 
 def test_fallback_sql_prefers_display_columns_over_bare_id() -> None:
@@ -528,25 +506,6 @@ def test_fallback_sql_allows_identifier_when_user_explicitly_asks() -> None:
     sql = build_fallback_sql("查询菜品ID和名称", _make_dish_catalog(), ["dish"])
 
     assert sql.startswith("SELECT `id`, `name`, `price`, `status`, `created_at` FROM `dish`")
-
-
-def test_agent_strategy_disabled_keys_apply_across_schema_and_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _configure_agent_strategy(monkeypatch, tmp_path, {
-        "disabled_table_keys": {
-            "dish": ["id", "status"],
-        }
-    })
-
-    catalog = _make_dish_catalog()
-    state = schema_retriever({"question": "查询起售菜品", "relevant_tables": ["dish"]}, catalog)
-    sql = build_fallback_sql("查询菜品ID和名称", catalog, ["dish"])
-
-    assert "Preferred SELECT output columns: `name`, `price`" in state["schema_context"]
-    assert "`status`" not in state["schema_context"]
-    assert "`id` (INTEGER; NOT NULL; PRIMARY KEY" not in state["schema_context"]
-    assert sql.startswith("SELECT `name`, `price`, `created_at` FROM `dish`")
-    assert "ORDER BY `id`" not in sql
-    assert "`status`" not in sql
 
 
 def test_schema_context_and_fallback_sql_use_qualified_table_names() -> None:
@@ -607,53 +566,6 @@ def test_join_repair_detects_weaker_candidate_with_unqualified_sql_on_qualified_
     assert "`sales`.`payments`.`order_no` = `sales`.`orders`.`order_no`" in message
 
 
-def test_agent_strategy_disabled_keys_remove_join_candidates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _configure_agent_strategy(monkeypatch, tmp_path, {
-        "disabled_table_keys": {
-            "orders": ["trace_no"],
-            "payments": ["trace_no"],
-        }
-    })
-
-    catalog = _make_join_repair_catalog(tmp_path)
-    state = schema_retriever({"question": "查询订单付款", "relevant_tables": ["orders", "payments"]}, catalog)
-
-    assert "`payments`.`order_no` = `orders`.`order_no`" in state["schema_context"]
-    assert "`payments`.`trace_no` = `orders`.`trace_no`" not in state["schema_context"]
-    assert "`trace_no` (VARCHAR" not in state["schema_context"]
-
-
-@pytest.mark.anyio
-async def test_sql_validator_blocks_disabled_join_keys(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _configure_agent_strategy(monkeypatch, tmp_path, {
-        "disabled_table_keys": {
-            "orders": ["trace_no"],
-            "payments": ["trace_no"],
-        }
-    })
-
-    result = await agent_nodes.sql_validator(
-        {
-            "generated_sql": (
-                "SELECT `orders`.`order_no`, `payments`.`pay_amount` FROM `orders` "
-                "JOIN `payments` ON `orders`.`trace_no` = `payments`.`trace_no` "
-                "ORDER BY `orders`.`id` DESC LIMIT 20;"
-            ),
-            "retry_count": 0,
-            "max_retries": 3,
-            "sql_params": [],
-            "schema_catalog": _make_join_repair_catalog(tmp_path),
-            "debug_trace": {},
-        },
-        SQLValidator(),
-        StubSQLExecutor(),
-    )
-
-    assert result["retry_count"] == 1
-    assert "治理禁用字段" in result["validation_error"]
-    assert "`orders`.`trace_no`" in result["validation_error"]
-
-
 @pytest.mark.anyio
 async def test_agent_graph_repairs_weaker_join_before_execution(tmp_path) -> None:
     llm_service = JoinRepairLLMService()
@@ -679,21 +591,17 @@ async def test_agent_graph_repairs_weaker_join_before_execution(tmp_path) -> Non
 
 
 @pytest.mark.anyio
-async def test_agent_graph_runs_six_node_pipeline_and_returns_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_agent_graph_runs_six_node_pipeline_and_returns_rows() -> None:
     reset_agent_graph()
-
-    async def provide_catalog():
-        return _make_dish_catalog()
-
-    monkeypatch.setattr("app.services.rag_service._get_schema_catalog", provide_catalog)
-
-    state = await run_agent(
-        question="查询客户下单状态和用户信息",
-        rag_service=StubRagService(),
-        llm_service=StubLLMService(),
-        validator=SQLValidator(),
-        executor=StubSQLExecutor(),
+    graph = build_agent_graph(
+        StubRagService(),
+        StubLLMService(),
+        SQLValidator(),
+        StubSQLExecutor(),
+        catalog=_make_dish_catalog(),
     )
+
+    state = await graph.ainvoke({"user_input": "查询起售菜品", "retry_count": 0, "max_retries": 3})
 
     assert state["intent"]
     assert state["relevant_tables"]

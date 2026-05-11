@@ -4,7 +4,7 @@ import logging
 from fastapi import FastAPI
 
 from app.config import get_settings
-from app.config_generation import refresh_generated_config_yaml
+from app.config_generation import refresh_startup_schema_artifacts
 from app.core.logging import configure_logging
 from app.core.middleware import configure_middlewares
 from app.routers.query import router as query_router
@@ -19,9 +19,9 @@ async def lifespan(_: FastAPI):
     configure_logging()
     settings = get_settings()
     try:
-        await refresh_generated_config_yaml()
+        await refresh_startup_schema_artifacts()
     except Exception:
-        logger.exception("Automatic config YAML refresh failed during startup")
+        logger.exception("Automatic schema-driven startup refresh failed")
     if settings.schema_watcher_enabled:
         await schema_watcher.start(
             databases=settings.effective_database_names,

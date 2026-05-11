@@ -1,5 +1,9 @@
+from types import SimpleNamespace
+
 import pytest
 
+from app.rag.schema_enrichment import SchemaEnrichment
+from app.rag.schema_introspection import LiveSchemaSnapshot, SchemaInspection
 from app.rag.schema_models import SchemaColumn, SchemaTable
 from app.rag.schema_sync import (
     _infer_relations_from_shared_columns,
@@ -58,21 +62,93 @@ def test_schema_sync_scans_all_tables_when_include_tables_are_empty() -> None:
 
 
 @pytest.mark.anyio
-async def test_schema_sync_respects_configured_jc_experimental_whitelist() -> None:
-    catalog = await sync_schema_metadata()
+async def test_schema_sync_uses_provided_snapshot_without_sample_database_assumptions(monkeypatch: pytest.MonkeyPatch) -> None:
+    snapshot = LiveSchemaSnapshot(
+        default_database="tenant_a",
+        configured_databases=["tenant_a"],
+        supports_named_schemas=True,
+        expose_table_database=True,
+        inspections={
+            "tenant_a": SchemaInspection(
+                table_names=["orders", "customers"],
+                columns_by_table={
+                    "orders": [{"name": "id", "type": "INTEGER", "nullable": False, "default": None, "comment": "订单ID"}],
+                    "customers": [{"name": "id", "type": "INTEGER", "nullable": False, "default": None, "comment": "客户ID"}],
+                },
+                primary_keys_by_table={"orders": ["id"], "customers": ["id"]},
+                foreign_keys=[],
+                indexes_by_table={"orders": [], "customers": []},
+                comments_by_table={"orders": "订单表", "customers": "客户表"},
+            )
+        },
+    )
+    monkeypatch.setattr("app.rag.schema_sync.get_settings", lambda: SimpleNamespace(
+        relation_probe_enabled=False,
+        relation_probe_top_k=0,
+        relation_probe_sample_limit=1,
+        relation_probe_timeout_seconds=0.1,
+        business_semantic_yaml_enabled=False,
+        business_semantic_override_path=None,
+        schema_scope_key="mysql+asyncmy://user:***@localhost:3306|databases=tenant_a|tables=",
+        business_semantic_yaml_dir="yaml",
+        schema_governance_artifact_dir="artifacts/schema_governance",
+    ))
+    monkeypatch.setattr("app.rag.schema_sync.load_schema_enrichment", lambda: SchemaEnrichment())
+    monkeypatch.setattr("app.config_loader.get_app_config", lambda: SimpleNamespace(table_relations={"relations": []}))
+    monkeypatch.setattr("app.rag.schema_sync.attach_business_semantics", lambda catalog, *args, **kwargs: catalog)
+    monkeypatch.setattr("app.rag.schema_sync.build_relationship_graph_artifact", lambda *args, **kwargs: None)
 
-    table_names = [table.name for table in catalog.tables]
-    assert catalog.database == "jc_experimental"
-    assert table_names == [
-        "weituo_clearing_detail",
-        "weituo",
-        "weituo_clearing_bill",
-        "weituo_settle_bill",
-    ]
-    assert all(table.database == "jc_experimental" for table in catalog.tables)
+    catalog = await sync_schema_metadata(snapshot=snapshot)
 
-    weituo_table = next(table for table in catalog.tables if table.name == "weituo")
-    assert weituo_table.columns
+    assert catalog.database == "tenant_a"
+    assert [table.name for table in catalog.tables] == ["orders", "customers"]
+    assert all(table.database == "tenant_a" for table in catalog.tables)
+    assert catalog.tables[0].columns
+
+
+@pytest.mark.anyio
+async def test_schema_sync_does_not_fall_back_to_sample_descriptions_or_value_mappings(monkeypatch: pytest.MonkeyPatch) -> None:
+    snapshot = LiveSchemaSnapshot(
+        default_database="testdb",
+        configured_databases=["testdb"],
+        supports_named_schemas=False,
+        expose_table_database=False,
+        inspections={
+            None: SchemaInspection(
+                table_names=["orders"],
+                columns_by_table={
+                    "orders": [
+                        {"name": "id", "type": "INTEGER", "nullable": False, "default": None, "comment": None},
+                        {"name": "status", "type": "INTEGER", "nullable": False, "default": None, "comment": None},
+                    ]
+                },
+                primary_keys_by_table={"orders": ["id"]},
+                foreign_keys=[],
+                indexes_by_table={"orders": []},
+                comments_by_table={"orders": None},
+            )
+        },
+    )
+    monkeypatch.setattr("app.rag.schema_sync.get_settings", lambda: SimpleNamespace(
+        relation_probe_enabled=False,
+        relation_probe_top_k=0,
+        relation_probe_sample_limit=1,
+        relation_probe_timeout_seconds=0.1,
+        business_semantic_yaml_enabled=False,
+        business_semantic_override_path=None,
+        schema_scope_key="sqlite+aiosqlite:///./test.db|databases=testdb|tables=",
+        business_semantic_yaml_dir="yaml",
+        schema_governance_artifact_dir="artifacts/schema_governance",
+    ))
+    monkeypatch.setattr("app.rag.schema_sync.load_schema_enrichment", lambda: SchemaEnrichment())
+    monkeypatch.setattr("app.config_loader.get_app_config", lambda: SimpleNamespace(table_relations={"relations": []}))
+    monkeypatch.setattr("app.rag.schema_sync.attach_business_semantics", lambda catalog, *args, **kwargs: catalog)
+    monkeypatch.setattr("app.rag.schema_sync.build_relationship_graph_artifact", lambda *args, **kwargs: None)
+
+    catalog = await sync_schema_metadata(snapshot=snapshot)
+
+    assert catalog.tables[0].description is None
+    assert catalog.tables[0].columns[1].description is None
 
 
 def test_infer_relations_from_shared_columns_prefers_business_keys_and_skips_audit_fields() -> None:

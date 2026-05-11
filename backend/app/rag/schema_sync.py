@@ -17,30 +17,12 @@ from app.rag.schema_introspection import (
     _table_names_for_schema,
     inspect_live_schema,
 )
+from app.rag.schema_introspection import LiveSchemaSnapshot
 from app.rag.schema_models import SchemaCatalog, SchemaColumn, SchemaRelation, SchemaTable
-from app.rag.value_mapping_loader import (
-    get_fallback_mapping_for_column,
-    load_value_mappings,
-    merge_column_description,
-)
 
 
 logger = logging.getLogger(__name__)
 
-
-TABLE_DESCRIPTIONS: dict[str, str] = {
-    "address_book": "用户收货地址表",
-    "category": "菜品与套餐分类表",
-    "dish": "菜品主表",
-    "dish_flavor": "菜品口味表",
-    "employee": "员工表",
-    "order_detail": "订单明细表",
-    "orders": "订单主表",
-    "setmeal": "套餐主表",
-    "setmeal_dish": "套餐与菜品关系表",
-    "shopping_cart": "购物车表",
-    "user": "用户表",
-}
 
 RELATION_HINTS: list[tuple[str, str, str, str, str | None]] = []
 
@@ -559,11 +541,14 @@ def _build_search_terms(
     return sorted(terms)
 
 
-async def sync_schema_metadata() -> SchemaCatalog:
+async def sync_schema_metadata(
+    snapshot: LiveSchemaSnapshot | None = None,
+    *,
+    yaml_enabled_override: bool | None = None,
+) -> SchemaCatalog:
     settings = get_settings()
     enrichment = load_schema_enrichment()
-    value_mappings = load_value_mappings()
-    snapshot = await inspect_live_schema()
+    snapshot = snapshot or await inspect_live_schema()
 
     default_database = snapshot.default_database
     configured_databases = snapshot.configured_databases
@@ -590,11 +575,6 @@ async def sync_schema_metadata() -> SchemaCatalog:
                     if raw_comment_text:
                         comment_value = raw_comment_text
 
-                fallback_mapping = get_fallback_mapping_for_column(
-                    value_mappings,
-                    table_name=table_name,
-                    column_name=column_name,
-                )
                 column_enrichment = get_column_enrichment(
                     enrichment,
                     table_name=table_name,
@@ -607,10 +587,7 @@ async def sync_schema_metadata() -> SchemaCatalog:
                         nullable=bool(raw_column.get("nullable", True)),
                         is_primary_key=column_name in primary_keys,
                         default=str(raw_column.get("default")) if raw_column.get("default") is not None else None,
-                        description=merge_column_description(
-                            db_description=comment_value,
-                            fallback_mapping=fallback_mapping,
-                        ),
+                        description=comment_value,
                         cross_table_diff=column_enrichment.cross_table_diff,
                         business_terms=column_enrichment.business_terms,
                         semantic_role=column_enrichment.semantic_role,
@@ -618,7 +595,7 @@ async def sync_schema_metadata() -> SchemaCatalog:
                 )
 
             table_enrichment = get_table_enrichment(enrichment, table_name)
-            table_description = comments_by_table.get(table_name) or TABLE_DESCRIPTIONS.get(table_name)
+            table_description = comments_by_table.get(table_name)
             tables.append(
                 SchemaTable(
                     name=table_name,
@@ -771,7 +748,7 @@ async def sync_schema_metadata() -> SchemaCatalog:
     catalog = attach_business_semantics(
         catalog,
         settings.business_semantic_override_path,
-        yaml_enabled=settings.business_semantic_yaml_enabled,
+        yaml_enabled=settings.business_semantic_yaml_enabled if yaml_enabled_override is None else yaml_enabled_override,
         database_url=settings.schema_scope_key,
         yaml_dir=settings.business_semantic_yaml_dir,
     )

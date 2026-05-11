@@ -6,13 +6,13 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from sqlalchemy.engine import make_url
 
 from app.config import get_settings
 from app.config_loader import reload_app_config
 from app.rag.business_semantics import _column_kind, _extract_enum_values
 from app.rag.schema_introspection import LiveSchemaSnapshot, inspect_live_schema
 from app.rag.schema_models import SchemaColumn
+from app.rag.schema_sync import sync_schema_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +35,6 @@ _COMMON_TABLE_SUFFIXES = (
     "表",
 )
 
-
-def _should_auto_generate_config() -> bool:
-    settings = get_settings()
-    try:
-        driver_name = make_url(settings.database_url).drivername.lower()
-    except Exception:
-        return False
-    return "mysql" in driver_name or "mariadb" in driver_name
-
-
 def _read_yaml_mapping(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -56,9 +46,18 @@ def _read_yaml_mapping(path: Path) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
-def _write_yaml_mapping(path: Path, payload: dict[str, Any]) -> None:
+def _dump_yaml_mapping(payload: dict[str, Any]) -> str:
+    return yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
+
+
+def _write_yaml_mapping(path: Path, payload: dict[str, Any]) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    rendered = _dump_yaml_mapping(payload)
+    current = path.read_text(encoding="utf-8") if path.exists() else None
+    if current == rendered:
+        return False
+    path.write_text(rendered, encoding="utf-8")
+    return True
 
 
 def _qualified_table_name(database_name: str | None, table_name: str, *, expose_table_database: bool) -> str:
@@ -360,14 +359,14 @@ def _preserve_overrides(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-async def refresh_generated_config_yaml() -> bool:
-    if not _should_auto_generate_config():
-        logger.info("Skipped config YAML refresh: database driver is not MySQL-compatible.")
-        return False
-
+async def refresh_generated_config_yaml(
+    snapshot: LiveSchemaSnapshot | None = None,
+    *,
+    reload_config: bool = True,
+) -> bool:
     settings = get_settings()
     config_dir = Path(settings.config_dir)
-    snapshot = await inspect_live_schema()
+    snapshot = snapshot or await inspect_live_schema()
 
     payloads = {
         "table_relations": _build_relations_payload(snapshot),
@@ -376,11 +375,20 @@ async def refresh_generated_config_yaml() -> bool:
         "business_terms": _build_business_terms_payload(snapshot),
     }
 
+    changed = False
     for section, filename in _STRUCTURE_CONFIG_FILES.items():
         path = config_dir / filename
         payload = _preserve_overrides(path, payloads[section])
-        _write_yaml_mapping(path, payload)
+        changed = _write_yaml_mapping(path, payload) or changed
 
-    reload_app_config()
-    logger.info("Refreshed generated config YAML files under %s", config_dir)
-    return True
+    if reload_config:
+        reload_app_config()
+    logger.info("Refreshed generated config YAML files under %s (changed=%s)", config_dir, changed)
+    return changed
+
+
+async def refresh_startup_schema_artifacts() -> bool:
+    snapshot = await inspect_live_schema()
+    config_changed = await refresh_generated_config_yaml(snapshot=snapshot, reload_config=True)
+    await sync_schema_metadata(snapshot=snapshot, yaml_enabled_override=True)
+    return config_changed

@@ -110,6 +110,14 @@ def business_semantic_yaml_path(database_url: str, yaml_dir: str | Path) -> Path
     return Path(yaml_dir).expanduser() / f"business_semantics_{label}_{digest}.yaml"
 
 
+def _write_text_if_changed(path: Path, content: str) -> bool:
+    current = path.read_text(encoding="utf-8") if path.exists() else None
+    if current == content:
+        return False
+    path.write_text(content, encoding="utf-8")
+    return True
+
+
 def _schema_signature(catalog: SchemaCatalog) -> str:
     parts: list[str] = []
     for table in sorted(catalog.tables, key=lambda item: item.qualified_name):
@@ -536,7 +544,10 @@ def _load_or_refresh_yaml_overrides(catalog: SchemaCatalog, base: BusinessSemant
     refreshed = _generated_yaml_payload(catalog, base, database_url)
     refreshed["overrides"] = overrides
     try:
-        yaml_path.write_text(yaml.safe_dump(refreshed, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        _write_text_if_changed(
+            yaml_path,
+            yaml.safe_dump(refreshed, allow_unicode=True, sort_keys=False),
+        )
     except OSError as error:
         diagnostics.append({"level": "warning", "code": "SEMANTIC_YAML_WRITE_ERROR", "message": f"Semantic YAML file could not be refreshed: {error.__class__.__name__}"})
     return overrides, diagnostics

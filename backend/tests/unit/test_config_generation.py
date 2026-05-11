@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import yaml
 
 from app.config import get_settings
-from app.config_generation import refresh_generated_config_yaml
+from app.config_generation import refresh_generated_config_yaml, refresh_startup_schema_artifacts
 from app.rag.schema_introspection import LiveSchemaSnapshot, SchemaInspection
 
 
@@ -48,15 +48,19 @@ def _make_snapshot() -> LiveSchemaSnapshot:
     )
 
 
-def test_refresh_generated_config_yaml_skips_non_mysql_driver(monkeypatch, tmp_path: Path) -> None:
+def test_refresh_generated_config_yaml_supports_sqlite_schema_refresh(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
     monkeypatch.setenv("CONFIG_DIR", str(tmp_path / "generated-config"))
     get_settings.cache_clear()
 
-    result = __import__("asyncio").run(refresh_generated_config_yaml())
+    with patch("app.config_generation.inspect_live_schema", new=AsyncMock(return_value=_make_snapshot())), patch(
+        "app.config_generation.reload_app_config"
+    ) as reload_mock:
+        result = __import__("asyncio").run(refresh_generated_config_yaml())
 
-    assert result is False
-    assert not (tmp_path / "generated-config" / "table_relations.yaml").exists()
+    assert result is True
+    reload_mock.assert_called_once()
+    assert (tmp_path / "generated-config" / "table_relations.yaml").exists()
 
 
 def test_refresh_generated_config_yaml_writes_generated_sections_and_preserves_overrides(monkeypatch, tmp_path: Path) -> None:
@@ -105,3 +109,38 @@ def test_refresh_generated_config_yaml_writes_generated_sections_and_preserves_o
     aliases = [item["alias"] for item in business_terms["generated"]["terms"]]
     assert "订单" in aliases
     assert "用户" in aliases
+
+
+def test_refresh_generated_config_yaml_avoids_meaningless_rewrite(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
+    monkeypatch.setenv("CONFIG_DIR", str(tmp_path / "config"))
+    get_settings.cache_clear()
+
+    with patch("app.config_generation.inspect_live_schema", new=AsyncMock(return_value=_make_snapshot())), patch(
+        "app.config_generation.reload_app_config"
+    ):
+        first_result = __import__("asyncio").run(refresh_generated_config_yaml())
+        table_relations_path = tmp_path / "config" / "table_relations.yaml"
+        first_content = table_relations_path.read_text(encoding="utf-8")
+        second_result = __import__("asyncio").run(refresh_generated_config_yaml())
+        second_content = table_relations_path.read_text(encoding="utf-8")
+
+    assert first_result is True
+    assert second_result is False
+    assert first_content == second_content
+
+
+def test_refresh_startup_schema_artifacts_uses_single_snapshot_for_config_and_semantics(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
+    monkeypatch.setenv("CONFIG_DIR", str(tmp_path / "config"))
+    get_settings.cache_clear()
+
+    snapshot = _make_snapshot()
+    with patch("app.config_generation.inspect_live_schema", new=AsyncMock(return_value=snapshot)) as inspect_mock, patch(
+        "app.config_generation.reload_app_config"
+    ), patch("app.config_generation.sync_schema_metadata", new=AsyncMock()) as sync_mock:
+        result = __import__("asyncio").run(refresh_startup_schema_artifacts())
+
+    assert result is True
+    inspect_mock.assert_awaited_once()
+    sync_mock.assert_awaited_once_with(snapshot=snapshot, yaml_enabled_override=True)
