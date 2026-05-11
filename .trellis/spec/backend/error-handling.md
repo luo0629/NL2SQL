@@ -81,6 +81,7 @@ Do not write spec or code that assumes Zhipu is the only real-model path.
 - Forgetting that an execution failure may still produce a valid JSON response body with `status="error"`
 - Updating response status semantics in `app/schemas/query.py` without aligning frontend handling in `frontend/src/App.vue`
 - Treating business semantic override YAML as trusted input instead of validating references against the live schema catalog
+- Letting startup schema/YAML refresh failures crash the FastAPI lifespan instead of logging a safe diagnostic and continuing with degraded behavior
 
 ---
 
@@ -202,4 +203,62 @@ graph_builder.add_conditional_edges(
     _should_retry_or_execute,
     {"sql_generator": "sql_generator", "sql_executor": "sql_executor", "result_formatter": "result_formatter"},
 )
+```
+
+---
+
+## Scenario: Startup schema refresh degradation
+
+### 1. Scope / Trigger
+
+- Trigger: application startup performs schema-driven refresh for core YAML and scope-isolated business semantics YAML.
+- Applies to: `app.main.lifespan`, `config_generation.py`, schema sync, startup logging, and YAML artifact preservation.
+
+### 2. Signatures
+
+- Startup entry: `await refresh_startup_schema_artifacts()`
+- Failure surface: exceptions raised while inspecting live schema, regenerating core backend/config YAML, or refreshing `business_semantics_<scope>.yaml`.
+
+### 3. Contracts
+
+- Startup refresh failure is a logged diagnostic, not a fatal startup exception by default.
+- Diagnostics must stay safe: no raw connection strings, passwords, hostnames, or local absolute paths in user-facing output.
+- Existing/generated YAML artifacts may be retained on startup refresh failure; the service should continue to boot in degraded mode.
+- Sparse schema metadata is not an error condition by itself; it should yield best-effort generated content rather than sample-database fallback knowledge.
+
+### 4. Validation & Error Matrix
+
+- Database unavailable during startup refresh -> log exception once, continue app startup.
+- YAML refresh succeeds but rendered content is unchanged -> skip rewrite, continue startup silently.
+- Schema comments/enum hints missing -> generate best-effort metadata, continue without injecting sample-specific defaults.
+- Override file/content invalid during semantic refresh -> filter invalid entries and continue with diagnostics.
+
+### 5. Good/Base/Bad Cases
+
+- Good: database is reachable, startup refresh updates core YAML and semantic YAML, and no-op files are left untouched.
+- Base: database is temporarily unavailable; startup logs a safe failure and the API still boots using last-known artifacts / later refresh paths.
+- Bad: one startup refresh exception aborts FastAPI lifespan and keeps the service from starting.
+
+### 6. Tests Required
+
+- Lifespan test: startup awaits refresh exactly once.
+- Lifespan test: startup refresh exception is logged and does not abort app startup.
+- Config-generation test: unchanged rendered YAML does not rewrite the target file.
+- Semantic-refresh test: startup-linked refresh preserves overrides and scope isolation.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+await refresh_generated_config_yaml()
+# Semantic YAML is only refreshed later on first request.
+```
+
+#### Correct
+
+```python
+await refresh_startup_schema_artifacts()
+# This unified entry refreshes core backend/config YAML first and then
+# refreshes scope-isolated business semantics YAML from the same startup path.
 ```

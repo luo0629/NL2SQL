@@ -1,0 +1,5 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Load backend spec index for schema sync, startup, and config refresh guidance"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Load schema sync, yaml refresh, and business semantics contracts for startup auto-refresh work"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Load safe degradation and diagnostic handling rules for startup refresh failures"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Load backend testing and contract-sensitive change guidance for startup schema refresh changes"}

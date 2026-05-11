@@ -196,6 +196,8 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Governance artifact settings: `Settings.schema_governance_artifact_dir` controls where relationship graph / governance JSON artifacts are written.
 - Agent strategy config: `backend/config/agent_strategy.yaml` is loaded by `app/config_loader.py` as `AppConfig.agent_strategy` and consumed by `app/agent/strategy.py`.
 - Agent strategy fields: `AgentRuntimeStrategy.term_sets`, `AgentRuntimeStrategy.join_preferences`, `AgentRuntimeStrategy.fallback`, `AgentRuntimeStrategy.disabled_table_keys`.
+- Startup refresh entry: `refresh_startup_schema_artifacts() -> refresh_generated_config_yaml() -> sync_schema_metadata(..., yaml_enabled_override=True)` is the unified startup-time refresh chain for core schema-driven YAML.
+- Core startup-refreshed YAML scope: `backend/config/table_relations.yaml`, `backend/config/field_semantics.yaml`, `backend/config/enum_mappings.yaml`, `backend/config/business_terms.yaml`, and scope-isolated `yaml/business_semantics_<scope>.yaml`.
 
 ### 3. Contracts
 
@@ -221,6 +223,10 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - `sql_validator` must run read-only safety checks before any database interaction, then run `EXPLAIN` only for MySQL-compatible URLs.
 - Non-MySQL test/development URLs may skip `EXPLAIN` with debug metadata; they must not silently execute invalid SQL before read-only validation.
 - Database switching must stay behind `Settings.database_url`; do not branch on hard-coded test database names or table names.
+- Startup refresh must be schema-driven. Runtime metadata enrichment, table descriptions, enum hints, and startup-generated YAML must not depend on Cangqiong Waimai / `jc_experimental`-specific fallback table names or status mappings as live defaults.
+- Startup refresh should preserve user `overrides` while rebuilding `generated` sections from the current schema.
+- Startup refresh should avoid rewriting YAML files when the rendered content is unchanged.
+- MVP scope only guarantees startup-time refresh unification; runtime watcher behavior may remain separate until explicitly refactored.
 
 ### 4. Validation & Error Matrix
 
@@ -239,6 +245,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - `agent_strategy.yaml` is missing, empty, or partially malformed -> use built-in default term sets / join weights / fallback parameters and continue safely.
 - A table/column is configured under `disabled_table_keys` -> `nodes.py`-owned selection logic should avoid surfacing or preferring that key in schema context, display columns, join candidates, and fallback SQL.
 - Generated SQL still joins on a disabled key -> return a structured validation error and retry generation before execution.
+- Startup refresh cannot connect to the live database -> log a safe diagnostic, continue application startup, and keep last-known / existing YAML artifacts without crashing the service.
+- Startup refresh sees unchanged generated content -> skip file rewrite.
+- Live schema has sparse comments or enum hints -> continue with schema-derived best effort output; do not inject sample-database fallback knowledge as truth.
 - Unsafe SQL -> `SQLValidator` rejects before `EXPLAIN` and before execution.
 - MySQL `EXPLAIN` failure -> set `validation_error`, increment retry count, and retry generation until `max_retries`.
 - Non-MySQL URL -> skip `EXPLAIN` with controlled debug reason, then rely on read-only validation and executor behavior.
@@ -247,9 +256,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 
 ### 5. Good/Base/Bad Cases
 
-- Good: LLM picks real tables, schema context includes comments/defaults plus `cross_table_diff`, shared-key joins are inferred only for credible business fields, ambiguous or risky candidates receive bounded runtime validation, `schema_sync` emits a safe relationship graph artifact with column quality / join coverage / deprecated status, table-level disabled keys are excluded from `nodes.py` strategy decisions, and the main path retries when SQL still picks a weaker or disabled join key.
-- Base: LLM unavailable; fallback picks real catalog tables and generates a conservative SELECT over real schema, using built-in default strategy values when no `agent_strategy.yaml` overrides are present.
-- Bad: SQL is generated from a template plan, static hard-coded schema, hard-coded business-table relations, a runtime-probe design that samples every candidate relation without budget control, a governance artifact that leaks connection secrets / local machine paths, or a main path that only displays preferred candidates but still executes weaker or governance-disabled keys unchanged.
+- Good: application startup refreshes the core YAML set from the current schema, preserves `overrides`, refreshes scope-isolated business semantics YAML, skips no-op rewrites, and the NL2SQL path uses live schema metadata rather than sample-database fallback knowledge.
+- Base: database metadata is sparse or temporarily unavailable, so startup logs a safe failure/skip diagnostic, keeps existing YAML artifacts, and runtime NL2SQL continues with best-effort live/schema-cached behavior instead of crashing.
+- Bad: startup hardcodes Cangqiong Waimai / `jc_experimental` table descriptions or enum hints into live metadata, rewrites YAML on every boot even when unchanged, or fails the whole service just because startup refresh cannot reach the database once.
 
 ### 6. Tests Required
 
@@ -273,6 +282,10 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Unit/graph: weaker join selection yields a structured validation error, increments retry, preserves `previous_sql`, and prevents execution until a stronger alternative is chosen.
 - Unit/graph: disabled-key join selection yields a structured validation error, increments retry, preserves `previous_sql`, and prevents execution until a non-disabled key is chosen.
 - Unit/graph: validation failure retries generation up to `max_retries=3` and never executes failed SQL.
+- Unit/startup: `lifespan` awaits the unified startup refresh entry exactly once and still starts successfully when refresh raises.
+- Unit/config-generation: startup refresh updates the 4 core `backend/config` YAML files, preserves `overrides`, and skips rewriting unchanged content.
+- Unit/business-semantics: startup-linked schema sync refreshes `business_semantics_<scope>.yaml`, preserves `overrides`, and keeps scope-specific filenames.
+- Unit/schema-sync: live table descriptions and enum hints come from current schema/comments or validated overrides, not from Cangqiong/jc_experimental fallback constants.
 - Unit/integration: high-level query returns `sql`, `rows`, `columns`, `row_count`, and `execution_summary` through the existing API contract.
 
 ### 7. Wrong vs Correct
@@ -336,4 +349,20 @@ dependencies = [
   ...,
   "sqlglot>=27.11.0",
 ]
+```
+
+#### Wrong
+
+```python
+# Boot refreshes backend/config YAML, but semantic YAML is only refreshed later
+# on first request, so startup artifacts are inconsistent.
+await refresh_generated_config_yaml()
+```
+
+#### Correct
+
+```python
+await refresh_startup_schema_artifacts()
+# This unified entry refreshes core backend/config YAML first and then
+# refreshes scope-isolated business semantics YAML from the same startup path.
 ```
