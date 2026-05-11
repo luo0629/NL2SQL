@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from app.agent.strategy import build_agent_runtime_strategy
 from app.config_loader import AppConfig, _merge_generated_overrides, _read_yaml
 
 
@@ -128,7 +129,7 @@ def _write_config_file(directory: Path, filename: str, content: dict) -> None:
     (directory / filename).write_text(yaml.safe_dump(content, allow_unicode=True), encoding="utf-8")
 
 
-def test_app_config_loads_all_six_files(tmp_path: Path) -> None:
+def test_app_config_loads_all_seven_files(tmp_path: Path) -> None:
     for filename in [
         "table_relations.yaml",
         "field_semantics.yaml",
@@ -136,6 +137,7 @@ def test_app_config_loads_all_six_files(tmp_path: Path) -> None:
         "enum_mappings.yaml",
         "business_terms.yaml",
         "few_shot_samples.yaml",
+        "agent_strategy.yaml",
     ]:
         _write_config_file(tmp_path, filename, {"generated": {"key": "value"}, "overrides": {}})
 
@@ -146,6 +148,7 @@ def test_app_config_loads_all_six_files(tmp_path: Path) -> None:
     assert config.enum_mappings == {"key": "value"}
     assert config.business_terms == {"key": "value"}
     assert config.few_shot_samples == {"key": "value"}
+    assert config.agent_strategy == {"key": "value"}
 
 
 def test_app_config_handles_missing_files(tmp_path: Path) -> None:
@@ -156,6 +159,7 @@ def test_app_config_handles_missing_files(tmp_path: Path) -> None:
     assert config.enum_mappings == {}
     assert config.business_terms == {}
     assert config.few_shot_samples == {}
+    assert config.agent_strategy == {}
 
 
 def test_app_config_overrides_take_precedence(tmp_path: Path) -> None:
@@ -215,6 +219,38 @@ def test_app_config_load_all_reloads(tmp_path: Path) -> None:
     assert config.table_relations["v"] == 2
 
 
+def test_build_agent_runtime_strategy_uses_safe_defaults() -> None:
+    strategy = build_agent_runtime_strategy({})
+
+    assert strategy.fallback.relevant_table_limit == 4
+    assert strategy.fallback.fallback_sql_limit == 20
+    assert strategy.join_preferences.weaker_join_min_gap == 4.0
+    assert strategy.is_disabled_column("orders", "trace_no") is False
+
+
+def test_build_agent_runtime_strategy_normalizes_disabled_keys_and_invalid_values() -> None:
+    strategy = build_agent_runtime_strategy({
+        "disabled_table_keys": {
+            "sales.orders": ["Trace_No", "trace_no", ""],
+            "payments": [" pay_amount "],
+        },
+        "fallback": {
+            "fallback_sql_limit": "15",
+            "relevant_table_limit": 0,
+        },
+        "join_preferences": {
+            "weaker_join_min_gap": "6",
+        },
+    })
+
+    assert strategy.is_disabled_column("orders", "trace_no") is True
+    assert strategy.is_disabled_column("sales.orders", "trace_no") is True
+    assert strategy.is_disabled_column("payments", "pay_amount") is True
+    assert strategy.fallback.fallback_sql_limit == 15
+    assert strategy.fallback.relevant_table_limit == 4
+    assert strategy.join_preferences.weaker_join_min_gap == 6.0
+
+
 def test_app_config_with_real_config_dir() -> None:
     """Verify the real config directory loads without errors."""
     real_config_dir = Path(__file__).resolve().parents[2] / "config"
@@ -228,3 +264,4 @@ def test_app_config_with_real_config_dir() -> None:
     assert isinstance(config.business_terms, dict)
     assert isinstance(config.few_shot_samples, dict)
     assert isinstance(config.field_examples, dict)
+    assert isinstance(config.agent_strategy, dict)

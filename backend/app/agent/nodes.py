@@ -8,6 +8,7 @@ import time
 from typing import Any, cast
 
 from app.agent.state import AgentState
+from app.agent.strategy import get_agent_runtime_strategy
 from app.config import get_settings
 from app.database.executor import SQLExecutor
 from app.rag.business_semantics import conversational_enum_mapping, conversational_enum_mapping_for_field
@@ -193,81 +194,19 @@ def _catalog_semantics(catalog: SchemaCatalog | None) -> BusinessSemanticLayer |
     return catalog.business_semantics if catalog and catalog.business_semantics else None
 
 
-_LOW_VALUE_SEMANTIC_TERMS = {
-    "id",
-    "主键",
-    "名称",
-    "名字",
-    "name",
-    "status",
-    "type",
-    "sort",
-    "image",
-    "description",
-    "remark",
-    "create_time",
-    "update_time",
-    "create_user",
-    "update_user",
-    "deleted",
-}
+def _disabled_table_keys(table_ref: str) -> set[str]:
+    return set(get_agent_runtime_strategy().disabled_keys_for(table_ref))
 
-_EXPLICIT_IDENTIFIER_TERMS = (
-    "id",
-    "编号",
-    "代码",
-    "编码",
-    "号码",
-    "单号",
-    "code",
-    " no",
-    "number",
-)
-_INTERNAL_AUDIT_COLUMNS = {
-    "create_user",
-    "update_user",
-    "created_by",
-    "updated_by",
-    "creator_id",
-    "updater_id",
-    "created_user_id",
-    "updated_user_id",
-    "deleted",
-    "is_deleted",
-    "delete_flag",
-}
-_INTERNAL_AUDIT_TIME_COLUMNS = {
-    "create_time",
-    "update_time",
-    "created_at",
-    "updated_at",
-    "create_date",
-    "update_date",
-    "modified_at",
-    "modified_time",
-}
-_DISPLAY_NAME_TOKENS = ("name", "title", "label", "subject", "summary", "description", "detail", "remark")
-_BUSINESS_VALUE_TOKENS = (
-    "amount",
-    "price",
-    "total",
-    "status",
-    "time",
-    "date",
-    "quantity",
-    "qty",
-    "count",
-    "number",
-    "phone",
-    "type",
-)
+
+def _is_disabled_table_column(table_ref: str, column_name: str) -> bool:
+    return get_agent_runtime_strategy().is_disabled_column(table_ref, column_name)
 
 
 def _is_low_value_semantic_term(term: str) -> bool:
     normalized = term.strip().lower()
     if not normalized:
         return True
-    if normalized in _LOW_VALUE_SEMANTIC_TERMS:
+    if normalized in get_agent_runtime_strategy().term_sets.low_value_semantic_terms:
         return True
     if normalized.endswith("_id") or normalized.endswith("id"):
         return True
@@ -276,7 +215,7 @@ def _is_low_value_semantic_term(term: str) -> bool:
 
 def _question_explicitly_requests_identifier(question: str) -> bool:
     normalized = f" {(question or '').lower()} "
-    return any(term in normalized for term in _EXPLICIT_IDENTIFIER_TERMS)
+    return any(term in normalized for term in get_agent_runtime_strategy().term_sets.explicit_identifier_terms)
 
 
 def _is_identifier_like_column_name(column_name: str) -> bool:
@@ -285,60 +224,70 @@ def _is_identifier_like_column_name(column_name: str) -> bool:
 
 
 def _is_internal_output_column(column: Any) -> bool:
+    strategy = get_agent_runtime_strategy()
     name = str(getattr(column, "name", "")).lower()
     role = str(getattr(column, "semantic_role", "") or "").lower()
     if role in {"identifier", "foreign_key", "internal"}:
         return True
     if _is_identifier_like_column_name(name):
         return True
-    if name in _INTERNAL_AUDIT_COLUMNS or name in _INTERNAL_AUDIT_TIME_COLUMNS:
+    if name in strategy.term_sets.internal_audit_columns or name in strategy.term_sets.internal_audit_time_columns:
         return True
     return False
 
 
 def _column_output_hint(column: Any) -> str:
+    strategy = get_agent_runtime_strategy()
     name = str(getattr(column, "name", "")).lower()
     role = str(getattr(column, "semantic_role", "") or "").lower()
     if role == "foreign_key" or name.endswith("_id"):
         return "join/filter/internal; do not select by default"
-    if role in {"identifier", "internal"} or _is_identifier_like_column_name(name) or name in _INTERNAL_AUDIT_COLUMNS:
+    if role in {"identifier", "internal"} or _is_identifier_like_column_name(name) or name in strategy.term_sets.internal_audit_columns:
         return "internal identifier; do not select by default"
-    if name in _INTERNAL_AUDIT_TIME_COLUMNS:
+    if name in strategy.term_sets.internal_audit_time_columns:
         return "audit timestamp; select only when the user asks for creation/update time"
     return "business-readable"
 
 
 def _display_column_rank(column: Any, *, include_internal: bool = False) -> tuple[int, int]:
+    strategy = get_agent_runtime_strategy()
     name = str(getattr(column, "name", "")).lower()
     role = str(getattr(column, "semantic_role", "") or "").lower()
     if include_internal and (role in {"identifier", "foreign_key"} or _is_identifier_like_column_name(name)):
         return (-1, 0)
     if not include_internal and _is_internal_output_column(column):
         return (90, 0)
-    if role == "dimension" and any(token in name for token in _DISPLAY_NAME_TOKENS):
+    if role == "dimension" and any(token in name for token in strategy.term_sets.display_name_tokens):
         return (0, 0)
-    if any(token in name for token in _DISPLAY_NAME_TOKENS):
+    if any(token in name for token in strategy.term_sets.display_name_tokens):
         return (1, 0)
     if role in {"metric", "dimension", "timestamp"}:
         return (2, 0)
-    if any(token in name for token in _BUSINESS_VALUE_TOKENS):
+    if any(token in name for token in strategy.term_sets.business_value_tokens):
         return (3, 0)
     if _is_internal_output_column(column):
         return (80, 0)
     return (10, 0)
 
 
-def _select_display_columns(table: SchemaTable, question: str, limit: int = 5) -> list[str]:
+def _select_display_columns(table: SchemaTable, question: str, limit: int | None = None) -> list[str]:
+    strategy = get_agent_runtime_strategy()
     include_internal = _question_explicitly_requests_identifier(question)
+    disabled_keys = _disabled_table_keys(_table_identity(table))
+    target_limit = limit or strategy.fallback.display_column_limit
     ranked = sorted(
         enumerate(table.columns),
         key=lambda item: (*_display_column_rank(item[1], include_internal=include_internal), item[0]),
     )
-    selected = [column.name for _index, column in ranked if include_internal or not _is_internal_output_column(column)]
+    selected = [
+        column.name
+        for _index, column in ranked
+        if column.name.lower() not in disabled_keys and (include_internal or not _is_internal_output_column(column))
+    ]
     if selected:
-        return selected[:limit]
-    fallback = [column.name for column in table.columns[:limit]]
-    return fallback or ["*"]
+        return selected[:target_limit]
+    fallback = [column.name for column in table.columns if column.name.lower() not in disabled_keys]
+    return fallback[:target_limit] or ["*"]
 
 
 def _semantic_item_matches_question(name: str, aliases: list[str], question: str) -> bool:
@@ -363,14 +312,25 @@ def _semantic_matches(question: str, semantics: BusinessSemanticLayer | None, ta
             continue
         if term.term.lower() not in normalized:
             continue
-        if allowed and not any(table in allowed for table in term.tables):
+        visible_tables = [table for table in term.tables if not allowed or table in allowed]
+        visible_columns = []
+        for column in term.columns:
+            if "." not in column:
+                continue
+            table_name, column_name = column.rsplit(".", 1)
+            if allowed and table_name not in allowed:
+                continue
+            if _is_disabled_table_column(table_name, column_name):
+                continue
+            visible_columns.append(column)
+        if allowed and not visible_tables and not visible_columns:
             continue
         matches.append(
             {
                 "term": term.term,
                 "kind": term.kind,
-                "tables": [table for table in term.tables if not allowed or table in allowed],
-                "columns": [column for column in term.columns if not allowed or any(column.startswith(f"{table}.") for table in allowed)],
+                "tables": visible_tables,
+                "columns": visible_columns,
                 "sources": term.sources,
             }
         )
@@ -382,6 +342,9 @@ def _semantic_matches(question: str, semantics: BusinessSemanticLayer | None, ta
 def _render_semantic_context(semantics: BusinessSemanticLayer | None, selected_table_names: set[str], question: str = "") -> str:
     if semantics is None:
         return ""
+
+    def _column_allowed(table_name: str, column_name: str | None) -> bool:
+        return not column_name or not _is_disabled_table_column(table_name, column_name)
     lines: list[str] = []
     matched = _semantic_matches(question, semantics, selected_table_names, limit=16) if question else []
     if matched:
@@ -393,7 +356,9 @@ def _render_semantic_context(semantics: BusinessSemanticLayer | None, selected_t
     metrics = [
         metric
         for metric in semantics.metrics
-        if metric.table in selected_table_names and _semantic_item_matches_question(metric.name, metric.aliases, question)
+        if metric.table in selected_table_names
+        and _column_allowed(metric.table, metric.column)
+        and _semantic_item_matches_question(metric.name, metric.aliases, question)
     ][:8]
     if metrics:
         lines.append("Business metrics:")
@@ -403,7 +368,9 @@ def _render_semantic_context(semantics: BusinessSemanticLayer | None, selected_t
     dimensions = [
         dimension
         for dimension in semantics.dimensions
-        if dimension.table in selected_table_names and _semantic_item_matches_question(dimension.name, dimension.aliases, question)
+        if dimension.table in selected_table_names
+        and _column_allowed(dimension.table, dimension.column)
+        and _semantic_item_matches_question(dimension.name, dimension.aliases, question)
     ][:8]
     if dimensions:
         lines.append("Business dimensions:")
@@ -413,6 +380,7 @@ def _render_semantic_context(semantics: BusinessSemanticLayer | None, selected_t
         enum
         for enum in semantics.enums
         if enum.table in selected_table_names
+        and _column_allowed(enum.table, enum.column)
         and _semantic_item_matches_question(
             enum.name,
             enum.aliases + list(enum.values.values()) + [alias for aliases in enum.value_aliases.values() for alias in aliases],
@@ -427,7 +395,8 @@ def _render_semantic_context(semantics: BusinessSemanticLayer | None, selected_t
     filters = [
         item
         for item in semantics.default_filters
-        if item.table in selected_table_names and _semantic_item_matches_question(item.name, item.aliases, question)
+        if item.table in selected_table_names
+        and _semantic_item_matches_question(item.name, item.aliases, question)
     ][:6]
     if filters:
         lines.append("Default filters from validated overrides:")
@@ -445,6 +414,8 @@ def _table_score(question: str, table: SchemaTable, semantics: BusinessSemanticL
         if term and term.lower() in normalized:
             score += 6 if term in {table.name, _table_identity(table)} else 4
     for column in table.columns:
+        if _is_disabled_table_column(_table_identity(table), column.name):
+            continue
         column_terms = [column.name, column.description or "", *(column.business_terms or [])]
         for term in column_terms:
             term = term.strip()
@@ -459,17 +430,23 @@ def _table_score(question: str, table: SchemaTable, semantics: BusinessSemanticL
     return score
 
 
-def _expand_selected_tables_with_relations(selected: list[str], catalog: SchemaCatalog | None, limit: int = 4) -> list[str]:
-    if catalog is None or len(selected) < 2 or len(selected) >= limit:
-        return selected[:limit]
+def _expand_selected_tables_with_relations(selected: list[str], catalog: SchemaCatalog | None, limit: int | None = None) -> list[str]:
+    effective_limit = limit or get_agent_runtime_strategy().fallback.relevant_table_limit
+    if catalog is None or len(selected) < 2 or len(selected) >= effective_limit:
+        return selected[:effective_limit]
     selected_set = set(selected)
     expanded = list(selected)
 
     # Preserve real-schema join ability without broadening single-table queries:
     # add only a one-hop bridge table that connects two already-selected tables.
-    relation_pairs = [({relation.from_qualified_table, relation.to_qualified_table}, relation) for relation in catalog.relations]
+    relation_pairs = [
+        ({relation.from_qualified_table, relation.to_qualified_table}, relation)
+        for relation in catalog.relations
+        if not _is_disabled_table_column(relation.from_qualified_table, relation.from_column)
+        and not _is_disabled_table_column(relation.to_qualified_table, relation.to_column)
+    ]
     for first_endpoints, _first_relation in relation_pairs:
-        if len(expanded) >= limit:
+        if len(expanded) >= effective_limit:
             break
         bridge_candidates = first_endpoints - selected_set
         if len(bridge_candidates) != 1 or not (first_endpoints & selected_set):
@@ -483,7 +460,7 @@ def _expand_selected_tables_with_relations(selected: list[str], catalog: SchemaC
                 selected_set.add(bridge)
                 break
 
-    return expanded[:limit]
+    return expanded[:effective_limit]
 
 
 def _selected_join_relations(selected_table_names: set[str], catalog: SchemaCatalog | None) -> list[str]:
@@ -492,6 +469,8 @@ def _selected_join_relations(selected_table_names: set[str], catalog: SchemaCata
     relations: list[str] = []
     for relation in catalog.relations:
         if relation.from_qualified_table not in selected_table_names or relation.to_qualified_table not in selected_table_names:
+            continue
+        if _is_disabled_table_column(relation.from_qualified_table, relation.from_column) or _is_disabled_table_column(relation.to_qualified_table, relation.to_column):
             continue
         description = f"{relation.from_qualified_table}.{relation.from_column} -> {relation.to_qualified_table}.{relation.to_column}"
         if relation.relation_type:
@@ -592,50 +571,46 @@ def _graph_edge_tags_by_relation(catalog: SchemaCatalog | None) -> dict[tuple[st
 
 
 def _relation_confidence_bonus(confidence: str | None) -> float:
+    strategy = get_agent_runtime_strategy().join_preferences
     normalized = (confidence or "").strip().lower()
-    if normalized == "high":
-        return 12.0
-    if normalized == "medium":
-        return 6.0
-    if normalized == "low":
+    if not normalized:
         return 0.0
-    return 2.0 if normalized else 0.0
+    return strategy.confidence_bonus.get(normalized, strategy.default_confidence_bonus)
 
 
 def _relation_type_bonus(relation_type: str | None) -> float:
+    strategy = get_agent_runtime_strategy().join_preferences
     normalized = (relation_type or "").strip().lower()
-    if normalized == "foreign_key":
-        return 40.0
-    if normalized == "configured":
-        return 24.0
-    if normalized == "inferred-shared-key":
-        return 10.0
-    return 4.0 if normalized else 0.0
+    if not normalized:
+        return 0.0
+    return strategy.relation_type_bonus.get(normalized, strategy.default_relation_type_bonus)
 
 
 def _relation_governance_penalty(tags: list[str]) -> tuple[float, list[str]]:
+    strategy = get_agent_runtime_strategy().join_preferences
     penalty = 0.0
     reasons: list[str] = []
     lowered = {tag.lower() for tag in tags}
     if "deprecated_endpoint" in lowered:
-        penalty += 18.0
+        penalty += strategy.governance_penalties.get("deprecated_endpoint", 0.0)
         reasons.append("命中了疑似已废弃字段")
     elif "suspected_endpoint" in lowered:
-        penalty += 10.0
+        penalty += strategy.governance_penalties.get("suspected_endpoint", 0.0)
         reasons.append("命中了疑似保留/临时字段")
     if "runtime_validated" not in lowered:
-        penalty += 2.0
+        penalty += strategy.governance_penalties.get("missing_runtime_validated", 0.0)
     return penalty, reasons
 
 
 def _relation_preference_score(relation: SchemaRelation, tags: list[str]) -> tuple[float, list[str]]:
+    strategy = get_agent_runtime_strategy().join_preferences
     score = _relation_type_bonus(relation.relation_type) + _relation_confidence_bonus(relation.confidence)
     reasons: list[str] = []
     if relation.ranking_score is not None:
         score += relation.ranking_score
         reasons.append(f"score={relation.ranking_score:.2f}")
     if relation.validation_summary:
-        score += 4.0
+        score += strategy.runtime_validated_bonus
         reasons.append("含 runtime probe")
     penalty, penalty_reasons = _relation_governance_penalty(tags)
     score -= penalty
@@ -654,6 +629,8 @@ def _sorted_selected_relations(selected_table_names: set[str], catalog: SchemaCa
     selected: list[tuple[SchemaRelation, list[str], float, list[str]]] = []
     for relation in catalog.relations:
         if relation.from_qualified_table not in selected_table_names or relation.to_qualified_table not in selected_table_names:
+            continue
+        if _is_disabled_table_column(relation.from_qualified_table, relation.from_column) or _is_disabled_table_column(relation.to_qualified_table, relation.to_column):
             continue
         tags = edge_tags.get(_join_relation_identity(relation), [])
         score, reasons = _relation_preference_score(relation, tags)
@@ -690,7 +667,7 @@ def _render_join_priority_context(selected_table_names: set[str], catalog: Schem
         )
         for relation, tags, score, reasons in relations[1:]:
             lowered_tags = {tag.lower() for tag in tags}
-            if best_score - score < 4 and "suspected_endpoint" not in lowered_tags and "deprecated_endpoint" not in lowered_tags:
+            if best_score - score < get_agent_runtime_strategy().join_preferences.weaker_join_min_gap and "suspected_endpoint" not in lowered_tags and "deprecated_endpoint" not in lowered_tags:
                 continue
             avoid_lines.append(
                 "- "
@@ -709,15 +686,16 @@ def _render_join_priority_context(selected_table_names: set[str], catalog: Schem
     return "\n".join(lines)
 
 
-def _rank_table_candidates(question: str, catalog: SchemaCatalog | None, limit: int = 6) -> list[str]:
+def _rank_table_candidates(question: str, catalog: SchemaCatalog | None, limit: int | None = None) -> list[str]:
+    effective_limit = limit or get_agent_runtime_strategy().fallback.candidate_score_limit
     tables = _catalog_tables(catalog)
     if not tables:
         return []
     semantics = _catalog_semantics(catalog)
     scored = [(_table_identity(table), _table_score(question, table, semantics), index) for index, table in enumerate(tables)]
     ranked = sorted(scored, key=lambda item: (-item[1], item[2]))
-    visible = [item for item in ranked if item[1] > 0] or ranked[:limit]
-    return [f"{name}:{score}" for name, score, _index in visible[:limit]]
+    visible = [item for item in ranked if item[1] > 0] or ranked[:effective_limit]
+    return [f"{name}:{score}" for name, score, _index in visible[:effective_limit]]
 
 
 def _sql_preview(sql: str, limit: int = 200) -> str:
@@ -727,7 +705,8 @@ def _sql_preview(sql: str, limit: int = 200) -> str:
     return f"{normalized[:limit]}..."
 
 
-def _fallback_relevant_tables(question: str, catalog: SchemaCatalog | None, limit: int = 4) -> list[str]:
+def _fallback_relevant_tables(question: str, catalog: SchemaCatalog | None, limit: int | None = None) -> list[str]:
+    effective_limit = limit or get_agent_runtime_strategy().fallback.relevant_table_limit
     tables = _catalog_tables(catalog)
     if not tables:
         return []
@@ -736,7 +715,7 @@ def _fallback_relevant_tables(question: str, catalog: SchemaCatalog | None, limi
     selected = [name for name, score, _index in sorted(scored, key=lambda item: (-item[1], item[2])) if score > 0]
     if not selected:
         selected = [_table_identity(table) for table in tables]
-    return _expand_selected_tables_with_relations(selected[:limit], catalog, limit=limit)
+    return _expand_selected_tables_with_relations(selected[:effective_limit], catalog, limit=effective_limit)
 
 
 def _build_intent_prompt(question: str, table_names: list[str], catalog: SchemaCatalog | None) -> str:
@@ -754,7 +733,7 @@ def _build_intent_prompt(question: str, table_names: list[str], catalog: SchemaC
     return "\n".join(
         [
             "你是 NL2SQL 的 intent_parser。只返回一个 JSON 对象，不要生成 SQL。",
-            "任务：用中文概括用户查询意图，并从真实表名列表中选择 1 到 4 张最相关表。",
+            f"任务：用中文概括用户查询意图，并从真实表名列表中选择 1 到 {get_agent_runtime_strategy().fallback.relevant_table_limit} 张最相关表。",
             "JSON 格式：{\"intent\": \"...\", \"relevant_tables\": [\"table_a\"]}",
             "relevant_tables 只能使用给定表名，不能编造表。",
             f"真实表名列表：{', '.join(table_names) if table_names else '(空)'}",
@@ -798,7 +777,12 @@ def _build_intent_result(
                 if name in table_lookup
             ]
             if filtered_tables:
-                relevant_tables = _expand_selected_tables_with_relations(list(dict.fromkeys(filtered_tables))[:4], catalog, limit=4)
+                relevant_limit = get_agent_runtime_strategy().fallback.relevant_table_limit
+                relevant_tables = _expand_selected_tables_with_relations(
+                    list(dict.fromkeys(filtered_tables))[:relevant_limit],
+                    catalog,
+                    limit=relevant_limit,
+                )
 
     semantic_signals = _semantic_matches(question, _catalog_semantics(catalog), set(relevant_tables))
     join_relations = _selected_join_relations(set(relevant_tables), catalog)
@@ -871,13 +855,16 @@ def _format_table_schema(
     catalog: SchemaCatalog | None,
     selected_table_names: set[str] | None = None,
 ) -> str:
+    strategy = get_agent_runtime_strategy()
     table_identity = _table_identity(table)
+    disabled_keys = _disabled_table_keys(table_identity)
     lines = [f"Table {_qualified_table_name(table)}"]
     if table.description:
         lines.append(f"Comment: {table.description}")
-    if table.primary_keys:
-        lines.append(f"Primary keys: {', '.join(_quote_identifier(key) for key in table.primary_keys)}")
-    display_columns = _select_display_columns(table, "", limit=6)
+    visible_primary_keys = [key for key in table.primary_keys if key.lower() not in disabled_keys]
+    if visible_primary_keys:
+        lines.append(f"Primary keys: {', '.join(_quote_identifier(key) for key in visible_primary_keys)}")
+    display_columns = _select_display_columns(table, "", limit=strategy.fallback.schema_display_column_limit)
     if display_columns and display_columns != ["*"]:
         lines.append(
             "Preferred SELECT output columns: "
@@ -886,6 +873,8 @@ def _format_table_schema(
         )
     lines.append("Columns:")
     for column in table.columns:
+        if column.name.lower() in disabled_keys:
+            continue
         attrs = [column.data_type]
         attrs.append("NULL" if column.nullable else "NOT NULL")
         if column.is_primary_key:
@@ -965,7 +954,7 @@ def _build_table_relations_overview(selected_table_names: set[str]) -> str:
         for cf in cross_fields:
             field = cf.get("field", "")
             cf_desc = cf.get("description", "")
-            if field and cf_desc:
+            if field and cf_desc and not _is_disabled_table_column(table_name, field):
                 parts.append(f"    - field `{field}`: {cf_desc}")
         if parts:
             profile_lines.extend(parts)
@@ -982,6 +971,8 @@ def _build_table_relations_overview(selected_table_names: set[str]) -> str:
             continue
         from_col = rel.get("from_column", "")
         to_col = rel.get("to_column", "")
+        if _is_disabled_table_column(from_table, from_col) or _is_disabled_table_column(to_table, to_col):
+            continue
         rel_type = rel.get("relation_type", "relation")
         business_meaning = rel.get("business_meaning", "")
         join_direction = rel.get("join_direction", "")
@@ -1036,7 +1027,7 @@ def schema_retriever(state: AgentState, catalog: SchemaCatalog | None = None) ->
         selected_tables.append(table)
         seen_selected.add(_table_identity(table))
     if not selected_tables:
-        selected_tables = _catalog_tables(catalog)[:4]
+        selected_tables = _catalog_tables(catalog)[:get_agent_runtime_strategy().fallback.relevant_table_limit]
     selected_table_names = {_table_identity(table) for table in selected_tables}
 
     relations_overview = _build_table_relations_overview(selected_table_names)
@@ -1094,7 +1085,7 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
         "当字段类型或业务含义不确定时，优先使用 LIKE 模糊匹配，不要直接使用等号精确匹配。",
         "id、*_id、create_user、update_user、create_time、update_time 等 output=internal/join/filter/audit 字段仍可用于 JOIN、WHERE、ORDER BY 和校验，但除非用户明确询问 ID/编号/code/no/number 或没有更可读字段，否则不要放进 SELECT 列表。",
         "如需要 LIMIT，必须同时给出稳定 ORDER BY。",
-        "默认添加合理 LIMIT 200，除非用户明确要求更小。",
+        f"默认添加合理 LIMIT {get_agent_runtime_strategy().fallback.prompt_default_limit}，除非用户明确要求更小。",
         f"用户问题：{_question_text(state)}",
         f"意图：{state.get('intent', '')}",
         f"相关表：{', '.join(state.get('relevant_tables', []))}",
@@ -1115,6 +1106,7 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
 
 
 def build_fallback_sql(question: str, catalog: SchemaCatalog | None = None, relevant_tables: list[str] | None = None) -> str:
+    strategy = get_agent_runtime_strategy()
     tables = _catalog_tables(catalog)
     if not tables:
         return "SELECT 1 AS result;"
@@ -1128,13 +1120,17 @@ def build_fallback_sql(question: str, catalog: SchemaCatalog | None = None, rele
         selected = _fallback_relevant_tables(question, catalog, limit=1)
         selected_name = selected[0] if selected else _table_identity(tables[0])
     table = table_by_name[selected_name]
-    columns = _select_display_columns(table, question, limit=5)
+    disabled_keys = _disabled_table_keys(_table_identity(table))
+    columns = _select_display_columns(table, question, limit=strategy.fallback.display_column_limit)
     select_expr = ", ".join("*" if column == "*" else _quote_identifier(column) for column in columns)
-    order_column = next((column.name for column in table.columns if column.is_primary_key), None) or (table.columns[0].name if table.columns else None)
+    order_column = next(
+        (column.name for column in table.columns if column.is_primary_key and column.name.lower() not in disabled_keys),
+        None,
+    ) or next((column.name for column in table.columns if column.name.lower() not in disabled_keys), None) or (table.columns[0].name if table.columns else None)
     sql = f"SELECT {select_expr} FROM {_qualified_table_name(table)}"
     if order_column:
         sql += f" ORDER BY {_quote_identifier(order_column)} DESC"
-    sql += " LIMIT 20;"
+    sql += f" LIMIT {strategy.fallback.fallback_sql_limit};"
     return sql
 
 
@@ -1288,6 +1284,22 @@ def _extract_join_equalities(sql: str) -> list[tuple[str, str, str, str]]:
     return equalities
 
 
+def _disabled_join_key_message(sql: str) -> str | None:
+    for left_table, left_column, right_table, right_column in _extract_join_equalities(sql):
+        disabled_refs: list[str] = []
+        if _is_disabled_table_column(left_table, left_column):
+            disabled_refs.append(_format_table_column_reference(left_table, left_column))
+        if _is_disabled_table_column(right_table, right_column):
+            disabled_refs.append(_format_table_column_reference(right_table, right_column))
+        if disabled_refs:
+            return (
+                "检测到当前 JOIN 使用了治理禁用字段："
+                + ", ".join(disabled_refs)
+                + "。请改用 schema_context 中未被禁用且明确推荐的关联键。"
+            )
+    return None
+
+
 def _best_alternative_join_message(sql: str, catalog: SchemaCatalog | None) -> str | None:
     if catalog is None:
         return None
@@ -1295,6 +1307,8 @@ def _best_alternative_join_message(sql: str, catalog: SchemaCatalog | None) -> s
     edge_tags = _graph_edge_tags_by_relation(catalog)
     relations_by_pair: dict[tuple[str, str], list[tuple[SchemaRelation, list[str], float, list[str]]]] = {}
     for relation in catalog.relations:
+        if _is_disabled_table_column(relation.from_qualified_table, relation.from_column) or _is_disabled_table_column(relation.to_qualified_table, relation.to_column):
+            continue
         tags = edge_tags.get(_join_relation_identity(relation), [])
         score, reasons = _relation_preference_score(relation, tags)
         relations_by_pair.setdefault(_join_relation_pair_key(relation), []).append((relation, tags, score, reasons))
@@ -1325,7 +1339,7 @@ def _best_alternative_join_message(sql: str, catalog: SchemaCatalog | None) -> s
         if chosen[0] == best[0]:
             continue
         chosen_tags = {tag.lower() for tag in chosen[1]}
-        if best[2] - chosen[2] < 4 and "suspected_endpoint" not in chosen_tags and "deprecated_endpoint" not in chosen_tags:
+        if best[2] - chosen[2] < get_agent_runtime_strategy().join_preferences.weaker_join_min_gap and "suspected_endpoint" not in chosen_tags and "deprecated_endpoint" not in chosen_tags:
             continue
         return (
             "检测到当前 JOIN 选择了较弱候选："
@@ -1353,6 +1367,9 @@ async def sql_validator(state: AgentState, validator: SQLValidator, executor: SQ
     started_at = time.monotonic()
     try:
         validator.validate_read_only(sql)
+        disabled_join_message = _disabled_join_key_message(sql)
+        if disabled_join_message:
+            raise DangerousSQLError(disabled_join_message)
         join_message = _best_alternative_join_message(sql, state.get("schema_catalog"))
         if join_message:
             raise DangerousSQLError(join_message)

@@ -19,6 +19,7 @@ _CONFIG_FILENAMES = (
     "enum_mappings.yaml",
     "business_terms.yaml",
     "few_shot_samples.yaml",
+    "agent_strategy.yaml",
 )
 
 
@@ -109,6 +110,10 @@ class AppConfig:
     @property
     def few_shot_samples(self) -> dict[str, Any]:
         return self.get("few_shot_samples")
+
+    @property
+    def agent_strategy(self) -> dict[str, Any]:
+        return self.get("agent_strategy")
 
 
 _app_config: AppConfig | None = None
