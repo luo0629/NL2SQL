@@ -607,3 +607,38 @@ Removed sample-database runtime defaults from the startup path, unified startup 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: Govern fallback ORDER BY selection
+
+**Date**: 2026-05-11
+**Task**: Govern fallback ORDER BY selection
+**Branch**: `main`
+
+### Summary
+
+Improved fallback ORDER BY selection using semantic signals, documented the fallback ordering rules, and refreshed the schema governance artifact.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2145b33` | (see git log) |
+| `ac64af9` | (see git log) |
+| `beee96b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
