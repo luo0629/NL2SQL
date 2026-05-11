@@ -92,3 +92,4 @@ These modules define contracts shared across multiple layers.
 - Assuming runtime join probes are only needed when a table pair has multiple sibling candidates; a single dirty shared-key candidate can also need bounded validation
 - Assuming offline governance artifacts can be treated as harmless side files; they are contract-sensitive outputs and must not leak secrets, fake perfect coverage, or silently diverge from schema sync state
 - Assuming join ranking, validation, or governance signals are useful just because they appear in schema_context; if the validator path does not enforce them, weaker joins can still reach execution unchanged
+- Assuming a table-level disabled key is handled just by hiding it from the prompt; if `nodes.py` selection logic and validator enforcement do not both honor the config, the key can still leak into generated SQL

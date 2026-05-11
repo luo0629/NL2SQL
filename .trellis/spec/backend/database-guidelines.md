@@ -194,6 +194,8 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Runtime probe path: `SQLExecutor.sample_column_values(table: str, column: str, *, order_by: list[str] | None = None, limit: int = 40, timeout_seconds: float | None = None) -> list[object]`.
 - Runtime probe settings: `Settings.relation_probe_enabled`, `Settings.relation_probe_top_k`, `Settings.relation_probe_sample_limit`, `Settings.relation_probe_timeout_seconds`.
 - Governance artifact settings: `Settings.schema_governance_artifact_dir` controls where relationship graph / governance JSON artifacts are written.
+- Agent strategy config: `backend/config/agent_strategy.yaml` is loaded by `app/config_loader.py` as `AppConfig.agent_strategy` and consumed by `app/agent/strategy.py`.
+- Agent strategy fields: `AgentRuntimeStrategy.term_sets`, `AgentRuntimeStrategy.join_preferences`, `AgentRuntimeStrategy.fallback`, `AgentRuntimeStrategy.disabled_table_keys`.
 
 ### 3. Contracts
 
@@ -212,6 +214,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - In join coverage metrics, a table with zero join candidates must report `coverage_ratio = 0.0`, not `1.0`.
 - Qualified and unqualified table names (for example `jc_experimental.weituo` vs `weituo`) must both resolve against enrichment data for table, column, relation hints, and SQL join-equality comparison.
 - Main-path join repair must treat relation ranking / validation / governance signals as executable constraints, not display-only text. When the generated SQL uses a weaker join equality for the same table pair while a stronger alternative exists, the validator path should raise a structured validation error and let the existing retry loop regenerate SQL.
+- Table-level disabled keys from `agent_strategy.yaml` are executable constraints, not prompt-only hints. In `nodes.py`-owned SQL generation logic they must be filtered out across schema-context rendering, display-column selection, join candidate preference, weaker-join guidance, and fallback SQL column / ordering selection.
+- If a generated JOIN still uses a disabled key, the validator path should return a structured retry message instead of executing the SQL unchanged.
+- Missing or malformed `agent_strategy` config must fall back to safe built-in defaults; configuration is allowed to tune behavior but must not be required for baseline execution.
 - `sql_generator` must generate SQL directly from `question`, `intent`, `schema_context`, `previous_sql`, `validation_error`, and `retry_count`; do not route the main path through `SemanticQuery` or `sql_plan` rendering.
 - `sql_validator` must run read-only safety checks before any database interaction, then run `EXPLAIN` only for MySQL-compatible URLs.
 - Non-MySQL test/development URLs may skip `EXPLAIN` with debug metadata; they must not silently execute invalid SQL before read-only validation.
@@ -231,6 +236,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Table has zero join candidates -> `JoinCoverageMetric.coverage_ratio` must be `0.0`.
 - Config override uses qualified table names while runtime lookup uses short names -> enrichment lookup must still resolve correctly.
 - Generated SQL joins the same table pair on a clearly weaker key while stronger preferred candidates exist -> return a structured validation error and retry generation before execution.
+- `agent_strategy.yaml` is missing, empty, or partially malformed -> use built-in default term sets / join weights / fallback parameters and continue safely.
+- A table/column is configured under `disabled_table_keys` -> `nodes.py`-owned selection logic should avoid surfacing or preferring that key in schema context, display columns, join candidates, and fallback SQL.
+- Generated SQL still joins on a disabled key -> return a structured validation error and retry generation before execution.
 - Unsafe SQL -> `SQLValidator` rejects before `EXPLAIN` and before execution.
 - MySQL `EXPLAIN` failure -> set `validation_error`, increment retry count, and retry generation until `max_retries`.
 - Non-MySQL URL -> skip `EXPLAIN` with controlled debug reason, then rely on read-only validation and executor behavior.
@@ -239,9 +247,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 
 ### 5. Good/Base/Bad Cases
 
-- Good: LLM picks real tables, schema context includes comments/defaults plus `cross_table_diff`, shared-key joins are inferred only for credible business fields, ambiguous or risky candidates receive bounded runtime validation, `schema_sync` emits a safe relationship graph artifact with column quality / join coverage / deprecated status, and the main path retries when SQL still picks a weaker join key for the same table pair.
-- Base: LLM unavailable; fallback picks real catalog tables and generates a conservative SELECT over real schema.
-- Bad: SQL is generated from a template plan, static hard-coded schema, hard-coded business-table relations, a runtime-probe design that samples every candidate relation without budget control, a governance artifact that leaks connection secrets / local machine paths, or a main path that only displays preferred candidates but still executes weaker joins unchanged.
+- Good: LLM picks real tables, schema context includes comments/defaults plus `cross_table_diff`, shared-key joins are inferred only for credible business fields, ambiguous or risky candidates receive bounded runtime validation, `schema_sync` emits a safe relationship graph artifact with column quality / join coverage / deprecated status, table-level disabled keys are excluded from `nodes.py` strategy decisions, and the main path retries when SQL still picks a weaker or disabled join key.
+- Base: LLM unavailable; fallback picks real catalog tables and generates a conservative SELECT over real schema, using built-in default strategy values when no `agent_strategy.yaml` overrides are present.
+- Bad: SQL is generated from a template plan, static hard-coded schema, hard-coded business-table relations, a runtime-probe design that samples every candidate relation without budget control, a governance artifact that leaks connection secrets / local machine paths, or a main path that only displays preferred candidates but still executes weaker or governance-disabled keys unchanged.
 
 ### 6. Tests Required
 
@@ -260,7 +268,10 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Unit/governance: zero-candidate tables produce `coverage_ratio == 0.0`.
 - Unit/graph: schema context exposes `Preferred join candidates` and `Avoid weaker join candidates` when stronger/weaker alternatives coexist.
 - Unit/graph: qualified catalog relations still block weaker unqualified SQL joins for the same table pair.
+- Unit/graph: table-level disabled keys are excluded from schema context rendering, preferred output-column selection, join candidate preference, and fallback SQL generation.
+- Unit/config: `agent_strategy.yaml` overrides are merged by `AppConfig.agent_strategy`; missing or malformed values fall back to built-in defaults.
 - Unit/graph: weaker join selection yields a structured validation error, increments retry, preserves `previous_sql`, and prevents execution until a stronger alternative is chosen.
+- Unit/graph: disabled-key join selection yields a structured validation error, increments retry, preserves `previous_sql`, and prevents execution until a non-disabled key is chosen.
 - Unit/graph: validation failure retries generation up to `max_retries=3` and never executes failed SQL.
 - Unit/integration: high-level query returns `sql`, `rows`, `columns`, `row_count`, and `execution_summary` through the existing API contract.
 
@@ -279,6 +290,22 @@ schema_context += "\nPreferred join candidates: ..."
 message = _best_alternative_join_message(sql, catalog)
 if message:
     raise DangerousSQLError(message)
+```
+
+#### Wrong
+
+```python
+# Key is marked unusable in governance config, but nodes.py still keeps it
+# in display-column ranking, join preference, or fallback SQL ordering.
+```
+
+#### Correct
+
+```python
+strategy = get_agent_runtime_strategy()
+disabled_keys = strategy.disabled_keys_for(table_name)
+# Filter disabled keys before rendering schema context, ranking join candidates,
+# or building fallback SQL.
 ```
 
 #### Wrong
