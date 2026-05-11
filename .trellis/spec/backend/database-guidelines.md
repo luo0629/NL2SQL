@@ -188,6 +188,7 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Stage 3 graph fields: `SchemaCatalog.relationship_graph: RelationshipGraphArtifact | None` is reserved for offline governance artifacts and future graph-driven retrieval.
 - Stage 3 artifact models include: `ColumnGovernanceMetric`, `JoinCoverageMetric`, `RelationshipGraphNode`, `RelationshipGraphEdge`, `RelationshipGraphSummary`, `RelationshipGraphArtifact`.
 - Main-path join-priority context: `schema_retriever` may render `Preferred join candidates:` and `Avoid weaker join candidates:` sections derived from relation / governance signals.
+- Fallback ORDER BY selection path: `build_fallback_sql() -> _select_fallback_ordering()`.
 - SQL state fields: `AgentState.generated_sql: str`, `AgentState.validation_error: str`, `AgentState.previous_sql: str`, `AgentState.retry_count: int`, `AgentState.max_retries: int`.
 - Execution path: `SQLExecutor.execute(sql: str, params: list[object] | None = None, max_rows: int | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
 - EXPLAIN path: `SQLExecutor.explain(sql: str, params: list[object] | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
@@ -220,6 +221,10 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - If a generated JOIN still uses a disabled key, the validator path should return a structured retry message instead of executing the SQL unchanged.
 - Missing or malformed `agent_strategy` config must fall back to safe built-in defaults; configuration is allowed to tune behavior but must not be required for baseline execution.
 - `sql_generator` must generate SQL directly from `question`, `intent`, `schema_context`, `previous_sql`, `validation_error`, and `retry_count`; do not route the main path through `SemanticQuery` or `sql_plan` rendering.
+- Fallback SQL must still satisfy the stable `ORDER BY + LIMIT` rule, but default fallback ordering must not blindly use primary key / first column as the semantic sort key.
+- Fallback ORDER BY selection should use this precedence: table-level strategy override -> explicit user order intent -> field semantics / business terms -> primary key fallback.
+- When fallback ordering uses a non-primary business field, it should append a primary key tie-breaker when available so row order remains deterministic.
+- MVP scope for this rule is limited to `build_fallback_sql()`; it does not by itself imply prompt-wide or validator-wide ORDER BY governance.
 - `sql_validator` must run read-only safety checks before any database interaction, then run `EXPLAIN` only for MySQL-compatible URLs.
 - Non-MySQL test/development URLs may skip `EXPLAIN` with debug metadata; they must not silently execute invalid SQL before read-only validation.
 - Database switching must stay behind `Settings.database_url`; do not branch on hard-coded test database names or table names.
@@ -248,6 +253,8 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Startup refresh cannot connect to the live database -> log a safe diagnostic, continue application startup, and keep last-known / existing YAML artifacts without crashing the service.
 - Startup refresh sees unchanged generated content -> skip file rewrite.
 - Live schema has sparse comments or enum hints -> continue with schema-derived best effort output; do not inject sample-database fallback knowledge as truth.
+- Fallback query has no table-level override and no strong semantic time/identifier/metric signal -> fall back to primary key ordering as the deterministic last resort.
+- Fallback query uses a semantic business field for ordering -> append a primary key tie-breaker when available.
 - Unsafe SQL -> `SQLValidator` rejects before `EXPLAIN` and before execution.
 - MySQL `EXPLAIN` failure -> set `validation_error`, increment retry count, and retry generation until `max_retries`.
 - Non-MySQL URL -> skip `EXPLAIN` with controlled debug reason, then rely on read-only validation and executor behavior.
@@ -256,9 +263,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 
 ### 5. Good/Base/Bad Cases
 
-- Good: application startup refreshes the core YAML set from the current schema, preserves `overrides`, refreshes scope-isolated business semantics YAML, skips no-op rewrites, and the NL2SQL path uses live schema metadata rather than sample-database fallback knowledge.
-- Base: database metadata is sparse or temporarily unavailable, so startup logs a safe failure/skip diagnostic, keeps existing YAML artifacts, and runtime NL2SQL continues with best-effort live/schema-cached behavior instead of crashing.
-- Bad: startup hardcodes Cangqiong Waimai / `jc_experimental` table descriptions or enum hints into live metadata, rewrites YAML on every boot even when unchanged, or fails the whole service just because startup refresh cannot reach the database once.
+- Good: fallback SQL for a generic list query orders by the most relevant semantic field (for example a business time field or business identifier), and adds a primary-key tie-breaker so repeated runs stay stable.
+- Base: no explicit user ordering intent or semantic ordering hint is available, so fallback SQL degrades to deterministic primary-key ordering.
+- Bad: fallback SQL always orders by primary key / first column DESC even when the table has a clearer business time or business identifier field, making result order look semantically wrong to users.
 
 ### 6. Tests Required
 
@@ -286,6 +293,11 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Unit/config-generation: startup refresh updates the 4 core `backend/config` YAML files, preserves `overrides`, and skips rewriting unchanged content.
 - Unit/business-semantics: startup-linked schema sync refreshes `business_semantics_<scope>.yaml`, preserves `overrides`, and keeps scope-specific filenames.
 - Unit/schema-sync: live table descriptions and enum hints come from current schema/comments or validated overrides, not from Cangqiong/jc_experimental fallback constants.
+- Unit/fallback-sql: explicit recency intent prefers semantic time fields for `ORDER BY`.
+- Unit/fallback-sql: without explicit time intent, business identifier fields can outrank generic technical timestamps.
+- Unit/fallback-sql: table-level strategy override can force fallback order column and direction.
+- Unit/fallback-sql: no better signal falls back to primary key ordering.
+- Unit/fallback-sql: non-primary semantic order field appends primary key tie-breaker when available.
 - Unit/integration: high-level query returns `sql`, `rows`, `columns`, `row_count`, and `execution_summary` through the existing API contract.
 
 ### 7. Wrong vs Correct
@@ -365,4 +377,20 @@ await refresh_generated_config_yaml()
 await refresh_startup_schema_artifacts()
 # This unified entry refreshes core backend/config YAML first and then
 # refreshes scope-isolated business semantics YAML from the same startup path.
+```
+
+#### Wrong
+
+```python
+order_column = next((column.name for column in table.columns if column.is_primary_key), None)
+sql += f" ORDER BY `{order_column}` DESC"
+```
+
+#### Correct
+
+```python
+order_columns, order_direction = _select_fallback_ordering(table, question)
+if order_columns:
+    order_expr = ", ".join(f"`{column}` {order_direction}" for column in order_columns)
+    sql += f" ORDER BY {order_expr}"
 ```
