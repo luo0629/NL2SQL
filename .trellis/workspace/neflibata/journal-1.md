@@ -572,3 +572,38 @@ Implemented configurable agent strategy extraction, added table-level disabled-k
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: Refresh startup schema-driven artifacts
+
+**Date**: 2026-05-11
+**Task**: Refresh startup schema-driven artifacts
+**Branch**: `main`
+
+### Summary
+
+Removed sample-database runtime defaults from the startup path, unified startup schema-driven YAML refresh for core artifacts, updated backend code-spec contracts, and refreshed the schema governance artifact.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4b707ba` | (see git log) |
+| `9d15779` | (see git log) |
+| `b5ba7cc` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
