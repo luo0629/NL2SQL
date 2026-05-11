@@ -12,7 +12,7 @@ from app.config import get_settings
 from app.database.executor import SQLExecutor
 from app.rag.business_semantics import conversational_enum_mapping, conversational_enum_mapping_for_field
 from app.agent.value_validation import MissingValueIssue, build_missing_value_prompt, extract_value_predicates
-from app.rag.schema_models import BusinessSemanticLayer, SchemaCatalog, SchemaTable
+from app.rag.schema_models import BusinessSemanticLayer, SchemaCatalog, SchemaRelation, SchemaTable
 from app.services.llm_service import LLMService
 from app.utils.exceptions import DangerousSQLError
 from app.validator.sql_validator import SQLValidator
@@ -508,6 +508,207 @@ def _selected_join_relations(selected_table_names: set[str], catalog: SchemaCata
     return relations
 
 
+def _table_ref_variants(table_ref: str) -> set[str]:
+    normalized = table_ref.strip().lower()
+    if not normalized:
+        return set()
+    parts = [part for part in normalized.split(".") if part]
+    variants = {normalized}
+    if parts:
+        variants.add(parts[-1])
+    if len(parts) >= 2:
+        variants.add(".".join(parts[-2:]))
+    return variants
+
+
+def _format_table_column_reference(table_ref: str, column: str) -> str:
+    parts = [part for part in table_ref.split(".") if part]
+    if len(parts) >= 2:
+        return f"{_quote_identifier(parts[-2])}.{_quote_identifier(parts[-1])}.{_quote_identifier(column)}"
+    return f"{_quote_identifier(table_ref)}.{_quote_identifier(column)}"
+
+
+def _join_relation_pair_key(relation: SchemaRelation) -> tuple[str, str]:
+    return tuple(sorted((relation.from_qualified_table.lower(), relation.to_qualified_table.lower())))
+
+
+def _join_relation_identity(relation: SchemaRelation) -> tuple[str, str, str, str]:
+    return (
+        relation.from_qualified_table.lower(),
+        relation.from_column.lower(),
+        relation.to_qualified_table.lower(),
+        relation.to_column.lower(),
+    )
+
+
+def _join_relation_pair_matches_tables(relation: SchemaRelation, left_table: str, right_table: str) -> bool:
+    left_variants = _table_ref_variants(left_table)
+    right_variants = _table_ref_variants(right_table)
+    relation_from_variants = _table_ref_variants(relation.from_qualified_table)
+    relation_to_variants = _table_ref_variants(relation.to_qualified_table)
+    return (
+        bool(left_variants & relation_from_variants)
+        and bool(right_variants & relation_to_variants)
+    ) or (
+        bool(left_variants & relation_to_variants)
+        and bool(right_variants & relation_from_variants)
+    )
+
+
+def _join_relation_matches(
+    relation: SchemaRelation,
+    left_table: str,
+    left_column: str,
+    right_table: str,
+    right_column: str,
+) -> bool:
+    if not _join_relation_pair_matches_tables(relation, left_table, right_table):
+        return False
+    left_column_normalized = left_column.lower()
+    right_column_normalized = right_column.lower()
+    return (
+        left_column_normalized == relation.from_column.lower()
+        and right_column_normalized == relation.to_column.lower()
+    ) or (
+        left_column_normalized == relation.to_column.lower()
+        and right_column_normalized == relation.from_column.lower()
+    )
+
+
+def _graph_edge_tags_by_relation(catalog: SchemaCatalog | None) -> dict[tuple[str, str, str, str], list[str]]:
+    if catalog is None or catalog.relationship_graph is None:
+        return {}
+    tags: dict[tuple[str, str, str, str], list[str]] = {}
+    for edge in catalog.relationship_graph.edges:
+        identity = (
+            edge.from_table.lower(),
+            edge.from_column.lower(),
+            edge.to_table.lower(),
+            edge.to_column.lower(),
+        )
+        tags[identity] = edge.governance_tags
+        tags[(edge.to_table.lower(), edge.to_column.lower(), edge.from_table.lower(), edge.from_column.lower())] = edge.governance_tags
+    return tags
+
+
+def _relation_confidence_bonus(confidence: str | None) -> float:
+    normalized = (confidence or "").strip().lower()
+    if normalized == "high":
+        return 12.0
+    if normalized == "medium":
+        return 6.0
+    if normalized == "low":
+        return 0.0
+    return 2.0 if normalized else 0.0
+
+
+def _relation_type_bonus(relation_type: str | None) -> float:
+    normalized = (relation_type or "").strip().lower()
+    if normalized == "foreign_key":
+        return 40.0
+    if normalized == "configured":
+        return 24.0
+    if normalized == "inferred-shared-key":
+        return 10.0
+    return 4.0 if normalized else 0.0
+
+
+def _relation_governance_penalty(tags: list[str]) -> tuple[float, list[str]]:
+    penalty = 0.0
+    reasons: list[str] = []
+    lowered = {tag.lower() for tag in tags}
+    if "deprecated_endpoint" in lowered:
+        penalty += 18.0
+        reasons.append("命中了疑似已废弃字段")
+    elif "suspected_endpoint" in lowered:
+        penalty += 10.0
+        reasons.append("命中了疑似保留/临时字段")
+    if "runtime_validated" not in lowered:
+        penalty += 2.0
+    return penalty, reasons
+
+
+def _relation_preference_score(relation: SchemaRelation, tags: list[str]) -> tuple[float, list[str]]:
+    score = _relation_type_bonus(relation.relation_type) + _relation_confidence_bonus(relation.confidence)
+    reasons: list[str] = []
+    if relation.ranking_score is not None:
+        score += relation.ranking_score
+        reasons.append(f"score={relation.ranking_score:.2f}")
+    if relation.validation_summary:
+        score += 4.0
+        reasons.append("含 runtime probe")
+    penalty, penalty_reasons = _relation_governance_penalty(tags)
+    score -= penalty
+    reasons.extend(penalty_reasons)
+    if relation.confidence:
+        reasons.append(f"confidence={relation.confidence}")
+    if relation.relation_type:
+        reasons.append(f"type={relation.relation_type}")
+    return score, reasons
+
+
+def _sorted_selected_relations(selected_table_names: set[str], catalog: SchemaCatalog | None) -> list[tuple[SchemaRelation, list[str], float, list[str]]]:
+    if catalog is None:
+        return []
+    edge_tags = _graph_edge_tags_by_relation(catalog)
+    selected: list[tuple[SchemaRelation, list[str], float, list[str]]] = []
+    for relation in catalog.relations:
+        if relation.from_qualified_table not in selected_table_names or relation.to_qualified_table not in selected_table_names:
+            continue
+        tags = edge_tags.get(_join_relation_identity(relation), [])
+        score, reasons = _relation_preference_score(relation, tags)
+        selected.append((relation, tags, score, reasons))
+    return sorted(
+        selected,
+        key=lambda item: (
+            _join_relation_pair_key(item[0]),
+            -item[2],
+            item[0].from_column.lower(),
+            item[0].to_column.lower(),
+        ),
+    )
+
+
+def _render_join_priority_context(selected_table_names: set[str], catalog: SchemaCatalog | None) -> str:
+    ranked = _sorted_selected_relations(selected_table_names, catalog)
+    if not ranked:
+        return ""
+
+    pair_groups: dict[tuple[str, str], list[tuple[SchemaRelation, list[str], float, list[str]]]] = {}
+    for item in ranked:
+        pair_groups.setdefault(_join_relation_pair_key(item[0]), []).append(item)
+
+    preferred_lines: list[str] = []
+    avoid_lines: list[str] = []
+    for relations in pair_groups.values():
+        best_relation, _best_tags, best_score, best_reasons = relations[0]
+        preferred_lines.append(
+            "- "
+            f"{_relation_endpoint(best_relation.from_database, best_relation.from_table, best_relation.from_column)} = "
+            f"{_relation_endpoint(best_relation.to_database, best_relation.to_table, best_relation.to_column)} "
+            f"[preferred_score={best_score:.2f}; reasons={'; '.join(best_reasons[:4])}]"
+        )
+        for relation, tags, score, reasons in relations[1:]:
+            lowered_tags = {tag.lower() for tag in tags}
+            if best_score - score < 4 and "suspected_endpoint" not in lowered_tags and "deprecated_endpoint" not in lowered_tags:
+                continue
+            avoid_lines.append(
+                "- "
+                f"避免优先使用 {_relation_endpoint(relation.from_database, relation.from_table, relation.from_column)} = "
+                f"{_relation_endpoint(relation.to_database, relation.to_table, relation.to_column)} "
+                f"[preferred_score={score:.2f}; reason={'; '.join(reasons[:4])}]"
+            )
+
+    lines: list[str] = []
+    if preferred_lines:
+        lines.append("Preferred join candidates:")
+        lines.extend(preferred_lines[:12])
+    if avoid_lines:
+        lines.append("Avoid weaker join candidates:")
+        lines.extend(avoid_lines[:12])
+    return "\n".join(lines)
+
+
 def _rank_table_candidates(question: str, catalog: SchemaCatalog | None, limit: int = 6) -> list[str]:
     tables = _catalog_tables(catalog)
     if not tables:
@@ -709,23 +910,23 @@ def _format_table_schema(
         lines.append(f"- {_quote_identifier(column.name)} ({'; '.join(attrs)})")
 
     selected_table_names = selected_table_names or {table_identity}
-    relations = [] if catalog is None else [
-        relation for relation in catalog.relations
-        if (relation.from_qualified_table == table_identity or relation.to_qualified_table == table_identity)
-        and relation.from_qualified_table in selected_table_names
-        and relation.to_qualified_table in selected_table_names
+    relations = [
+        item for item in _sorted_selected_relations(selected_table_names, catalog)
+        if item[0].from_qualified_table == table_identity or item[0].to_qualified_table == table_identity
     ]
     if relations:
         lines.append("Relations:")
-        for relation in relations:
+        for relation, tags, preferred_score, _reasons in relations:
             confidence = f"; confidence={relation.confidence}" if relation.confidence else ""
             score = f"; score={relation.ranking_score:.2f}" if relation.ranking_score is not None else ""
             validation = f"; validation={relation.validation_summary}" if relation.validation_summary else ""
             hint = f"; hint={relation.join_hint}" if relation.join_hint else ""
+            governance = f"; governance={', '.join(tags)}" if tags else ""
+            preferred = f"; preferred_score={preferred_score:.2f}"
             lines.append(
                 f"- {_relation_endpoint(relation.from_database, relation.from_table, relation.from_column)} -> "
                 f"{_relation_endpoint(relation.to_database, relation.to_table, relation.to_column)}"
-                f" ({relation.relation_type or 'relation'}{confidence}{score}{validation}{hint})"
+                f" ({relation.relation_type or 'relation'}{confidence}{score}{preferred}{validation}{hint}{governance})"
             )
     return "\n".join(lines)
 
@@ -839,11 +1040,13 @@ def schema_retriever(state: AgentState, catalog: SchemaCatalog | None = None) ->
     selected_table_names = {_table_identity(table) for table in selected_tables}
 
     relations_overview = _build_table_relations_overview(selected_table_names)
+    join_priority_context = _render_join_priority_context(selected_table_names, catalog)
     table_schemas = "\n\n".join(
         _format_table_schema(table, catalog, selected_table_names)
         for table in selected_tables
     )
-    schema_context = f"{relations_overview}\n\n{table_schemas}" if relations_overview else table_schemas
+    schema_sections = [section for section in [relations_overview, join_priority_context, table_schemas] if section]
+    schema_context = "\n\n".join(schema_sections)
 
     semantic_context = _render_semantic_context(
         _catalog_semantics(catalog),
@@ -884,7 +1087,7 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
         "硬性规则：只能生成只读 SELECT/WITH 查询；禁止 INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/TRUNCATE/GRANT/EXEC/SLEEP/BENCHMARK。",
         "所有表名和字段名必须用反引号包裹。跨数据库或 schema_context 中显示为数据库限定的表，必须使用 MySQL 全限定表名，如 `jc_config`.`table`、`jc_experimental`.`table`。",
         "只能使用 schema_context 中出现的表和字段；业务语义只用于解释同义词、指标、枚举和默认过滤，不能引入未出现在 schema_context 的表字段。",
-        "JOIN 规则：优先使用 schema_context 中 Relations、Table Relations、hint、confidence 明确推荐的联表键；当多个同名字段都能联表时，优先业务主编号/外键语义更强的字段，避免使用 reserve、deleted、revision、creator、updater、*_time 以及带临时/预/保留/审计语义的字段。",
+        "JOIN 规则：优先使用 schema_context 中 Preferred join candidates、Relations、Table Relations、hint、confidence、preferred_score 明确推荐的联表键；若存在 Avoid weaker join candidates 或 governance=suspected_endpoint/deprecated_endpoint，除非用户明确要求，否则不要使用这些联表字段。",
         "SELECT 输出默认优先选择 schema_context 标注的 Preferred SELECT output columns 或 output=business-readable 字段，例如 name/title/amount/status/time/description。",
         "WHERE 字段匹配规则：带 enum_mapping/枚举对照的字段必须使用精确匹配（= 或 IN），匹配值只能来自 schema_context 中该字段的 enum_mapping，禁止编造枚举值。",
         "名称类字符串字段（如 city/城市、name/姓名/客户名、product_name/商品名、title/标题、description/描述等）默认使用 LIKE 模糊匹配，并用通配符包裹用户给出的关键词。",
@@ -1008,6 +1211,134 @@ async def async_sql_generator(state: AgentState, llm_service: LLMService, catalo
     return _build_sql_generator_result(state, catalog, generated_sql, llm_error=llm_error)
 
 
+def _strip_identifier_quotes(value: str) -> str:
+    text = value.strip()
+    if text.startswith("`") and text.endswith("`"):
+        return text[1:-1]
+    return text
+
+
+def _normalize_sql_identifier_path(path: str) -> tuple[str, ...]:
+    return tuple(
+        part for part in (_strip_identifier_quotes(item.strip()) for item in path.split(".")) if part
+    )
+
+
+def _extract_sql_table_aliases(sql: str) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    pattern = re.compile(
+        r"\b(?:from|join)\s+((?:`[^`]+`|[A-Za-z_][\w$]*)(?:\s*\.\s*(?:`[^`]+`|[A-Za-z_][\w$]*))?)"
+        r"(?:\s+(?:as\s+)?)?(`[^`]+`|[A-Za-z_][\w$]*)?",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(sql):
+        raw_table = match.group(1)
+        raw_alias = match.group(2)
+        parts = _normalize_sql_identifier_path(raw_table)
+        if len(parts) == 1:
+            qualified_table = parts[0]
+            short_name = parts[0]
+        elif len(parts) == 2:
+            qualified_table = f"{parts[0]}.{parts[1]}"
+            short_name = parts[1]
+        else:
+            continue
+        aliases[qualified_table.lower()] = qualified_table
+        aliases[short_name.lower()] = qualified_table
+        if raw_alias:
+            alias = _strip_identifier_quotes(raw_alias)
+            if alias.lower() not in {"on", "where", "left", "right", "inner", "outer", "group", "order", "limit"}:
+                aliases[alias.lower()] = qualified_table
+    return aliases
+
+
+def _resolve_sql_operand_table(parts: tuple[str, ...], aliases: dict[str, str]) -> tuple[str, str] | None:
+    if len(parts) == 2:
+        table_ref, column = parts
+        resolved_table = aliases.get(table_ref.lower(), table_ref)
+        return resolved_table, column
+    if len(parts) == 3:
+        database_name, table_name, column = parts
+        return f"{database_name}.{table_name}", column
+    return None
+
+
+def _extract_join_equalities(sql: str) -> list[tuple[str, str, str, str]]:
+    aliases = _extract_sql_table_aliases(sql)
+    comparison_pattern = re.compile(
+        r"((?:`[^`]+`|[A-Za-z_][\w$]*)(?:\s*\.\s*(?:`[^`]+`|[A-Za-z_][\w$]*)){1,2})"
+        r"\s*=\s*"
+        r"((?:`[^`]+`|[A-Za-z_][\w$]*)(?:\s*\.\s*(?:`[^`]+`|[A-Za-z_][\w$]*)){1,2})",
+        re.IGNORECASE,
+    )
+    equalities: list[tuple[str, str, str, str]] = []
+    for match in comparison_pattern.finditer(sql):
+        left = _resolve_sql_operand_table(_normalize_sql_identifier_path(match.group(1)), aliases)
+        right = _resolve_sql_operand_table(_normalize_sql_identifier_path(match.group(2)), aliases)
+        if left is None or right is None:
+            continue
+        left_table, left_column = left
+        right_table, right_column = right
+        if left_table.lower() == right_table.lower():
+            continue
+        equality = (left_table, left_column, right_table, right_column)
+        reverse = (right_table, right_column, left_table, left_column)
+        if equality not in equalities and reverse not in equalities:
+            equalities.append(equality)
+    return equalities
+
+
+def _best_alternative_join_message(sql: str, catalog: SchemaCatalog | None) -> str | None:
+    if catalog is None:
+        return None
+
+    edge_tags = _graph_edge_tags_by_relation(catalog)
+    relations_by_pair: dict[tuple[str, str], list[tuple[SchemaRelation, list[str], float, list[str]]]] = {}
+    for relation in catalog.relations:
+        tags = edge_tags.get(_join_relation_identity(relation), [])
+        score, reasons = _relation_preference_score(relation, tags)
+        relations_by_pair.setdefault(_join_relation_pair_key(relation), []).append((relation, tags, score, reasons))
+    for relations in relations_by_pair.values():
+        relations.sort(key=lambda item: (-item[2], item[0].from_column.lower(), item[0].to_column.lower()))
+
+    for left_table, left_column, right_table, right_column in _extract_join_equalities(sql):
+        candidates = next(
+            (
+                relations
+                for relations in relations_by_pair.values()
+                if relations and _join_relation_pair_matches_tables(relations[0][0], left_table, right_table)
+            ),
+            None,
+        )
+        if not candidates or len(candidates) < 2:
+            continue
+        chosen = next(
+            (
+                item for item in candidates
+                if _join_relation_matches(item[0], left_table, left_column, right_table, right_column)
+            ),
+            None,
+        )
+        if chosen is None:
+            continue
+        best = candidates[0]
+        if chosen[0] == best[0]:
+            continue
+        chosen_tags = {tag.lower() for tag in chosen[1]}
+        if best[2] - chosen[2] < 4 and "suspected_endpoint" not in chosen_tags and "deprecated_endpoint" not in chosen_tags:
+            continue
+        return (
+            "检测到当前 JOIN 选择了较弱候选："
+            f"{_format_table_column_reference(left_table, left_column)} = {_format_table_column_reference(right_table, right_column)}。"
+            "请改用同一对表中更优的关联键："
+            f"{_relation_endpoint(best[0].from_database, best[0].from_table, best[0].from_column)} = "
+            f"{_relation_endpoint(best[0].to_database, best[0].to_table, best[0].to_column)}。"
+            f"更优依据：{'; '.join(best[3][:4])}；当前候选问题：{'; '.join(chosen[3][:4]) or 'preferred_score 更低'}。"
+            "避免继续使用疑似保留/临时/低覆盖的联表字段。"
+        )
+    return None
+
+
 def _should_run_mysql_explain() -> bool:
     database_url = (get_settings().database_url or "").lower()
     return "mysql" in database_url or "asyncmy" in database_url or "pymysql" in database_url
@@ -1022,6 +1353,9 @@ async def sql_validator(state: AgentState, validator: SQLValidator, executor: SQ
     started_at = time.monotonic()
     try:
         validator.validate_read_only(sql)
+        join_message = _best_alternative_join_message(sql, state.get("schema_catalog"))
+        if join_message:
+            raise DangerousSQLError(join_message)
         if should_explain:
             await executor.explain(
                 sql,

@@ -5,10 +5,11 @@ from types import SimpleNamespace
 import pytest
 
 import app.agent.nodes as agent_nodes
-from app.agent.graph import reset_agent_graph, run_agent
+from app.agent.graph import build_agent_graph, reset_agent_graph, run_agent
 from app.agent.nodes import async_sql_generator, build_fallback_sql, intent_parser, schema_retriever
 from app.database.executor import SQLExecutor
 from app.rag.business_semantics import attach_business_semantics
+from app.rag.schema_governance import build_relationship_graph_artifact
 from app.rag.schema_models import SchemaCatalog, SchemaColumn, SchemaRelation, SchemaTable
 from app.schemas.sql import SQLExecutionResult
 from app.services.llm_service import LLMService
@@ -41,6 +42,43 @@ class FakeStructuredModel:
 class FakeLLMService(LLMService):
     def build_chat_model(self):
         return FakeStructuredModel()
+
+
+class JoinRepairModel:
+    def __init__(self) -> None:
+        self.sql_prompts: list[str] = []
+
+    async def ainvoke(self, prompt: str):
+        class Response:
+            def __init__(self, content: str):
+                self.content = content
+
+        if "只返回一个 JSON 对象" in prompt:
+            return Response('{"intent":"查询订单付款","relevant_tables":["orders","payments"]}')
+
+        if "只输出一条 SQL" in prompt:
+            self.sql_prompts.append(prompt)
+            if "检测到当前 JOIN 选择了较弱候选" in prompt:
+                return Response(
+                    "SELECT `orders`.`order_no`, `payments`.`pay_amount` FROM `orders` "
+                    "JOIN `payments` ON `orders`.`order_no` = `payments`.`order_no` "
+                    "ORDER BY `orders`.`id` DESC LIMIT 20;"
+                )
+            return Response(
+                "SELECT `orders`.`order_no`, `payments`.`pay_amount` FROM `orders` "
+                "JOIN `payments` ON `orders`.`trace_no` = `payments`.`trace_no` "
+                "ORDER BY `orders`.`id` DESC LIMIT 20;"
+            )
+
+        return Response("查询执行成功，返回了订单付款结果。")
+
+
+class JoinRepairLLMService(LLMService):
+    def __init__(self) -> None:
+        self.model = JoinRepairModel()
+
+    def build_chat_model(self):
+        return self.model
 
 
 class StubSQLExecutor(SQLExecutor):
@@ -144,6 +182,43 @@ class TimeoutRecordingSQLExecutor(SQLExecutor):
         )
 
 
+class JoinAwareSQLExecutor(SQLExecutor):
+    def __init__(self) -> None:
+        self.executed_sql: list[str] = []
+
+    async def explain(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> None:
+        return None
+
+    async def execute(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        max_rows: int | None = None,
+        timeout_seconds: float | None = None,
+    ) -> SQLExecutionResult:
+        self.executed_sql.append(sql)
+        if "`trace_no` = `payments`.`trace_no`" in sql:
+            return SQLExecutionResult(
+                rows=[],
+                row_count=0,
+                columns=["order_no", "pay_amount"],
+                truncated=False,
+                execution_summary="查询执行成功，但没有返回记录。",
+            )
+        return SQLExecutionResult(
+            rows=[{"order_no": "O1001", "pay_amount": 88.0}],
+            row_count=1,
+            columns=["order_no", "pay_amount"],
+            truncated=False,
+            execution_summary="查询执行成功，共返回 1 行。",
+        )
+
+
 class SlowModel:
     async def ainvoke(self, prompt: str):
         await asyncio.sleep(0.05)
@@ -198,6 +273,68 @@ def _make_dish_catalog() -> SchemaCatalog:
             )
         ],
     ))
+
+
+def _make_join_repair_catalog(tmp_path, *, qualified: bool = False) -> SchemaCatalog:
+    relation_kwargs = {"from_database": "sales", "to_database": "sales"} if qualified else {}
+    table_database = "sales" if qualified else None
+    catalog = attach_business_semantics(SchemaCatalog(
+        database="test_db",
+        tables=[
+            SchemaTable(
+                database=table_database,
+                name="orders",
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, description="业务订单编号", semantic_role="dimension", cross_table_diff="订单主编号，优先作为跨表关联键"),
+                    SchemaColumn(name="trace_no", data_type="VARCHAR", nullable=True, description="临时追踪号，可能为空，仅用于内部排障", semantic_role="dimension", cross_table_diff="临时追踪号，不能优先作为跨表关联键"),
+                ],
+            ),
+            SchemaTable(
+                database=table_database,
+                name="payments",
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, description="业务订单编号", semantic_role="dimension", cross_table_diff="付款记录对应订单主编号，优先关联 orders.order_no"),
+                    SchemaColumn(name="trace_no", data_type="VARCHAR", nullable=True, description="临时追踪号，保留字段", semantic_role="dimension", cross_table_diff="保留字段，高空值，避免优先联表"),
+                    SchemaColumn(name="pay_amount", data_type="DECIMAL", nullable=False, description="付款金额", semantic_role="metric"),
+                ],
+            ),
+        ],
+        relations=[
+            SchemaRelation(
+                from_table="payments",
+                from_column="order_no",
+                to_table="orders",
+                to_column="order_no",
+                relation_type="inferred-shared-key",
+                confidence="high",
+                join_hint="优先按业务订单编号联表",
+                ranking_score=9.8,
+                validation_summary="sample_probe(rows=4/4; non_null=1.00/1.00; distinct=1.00/1.00; overlap=0.75)",
+                **relation_kwargs,
+            ),
+            SchemaRelation(
+                from_table="payments",
+                from_column="trace_no",
+                to_table="orders",
+                to_column="trace_no",
+                relation_type="inferred-shared-key",
+                confidence="low",
+                join_hint="仅排障时使用临时追踪号，不应优先联表",
+                ranking_score=1.2,
+                validation_summary="sample_probe(rows=4/4; non_null=0.25/0.50; distinct=0.33/0.33; overlap=0.00)",
+                **relation_kwargs,
+            ),
+        ],
+    ))
+    catalog.relationship_graph = build_relationship_graph_artifact(
+        catalog,
+        scope_key="sqlite+aiosqlite:///join-repair-test",
+        artifact_dir=tmp_path,
+        generated_at="2026-05-10T00:00:00Z",
+    )
+    return catalog
 
 
 def test_intent_parser_filters_hallucinated_tables() -> None:
@@ -325,6 +462,19 @@ def test_schema_context_exposes_cross_table_diff_guidance() -> None:
     assert state["debug_trace"]["schema_retriever"]["relation_signals"]
 
 
+def test_schema_context_surfaces_preferred_and_weaker_join_candidates(tmp_path) -> None:
+    state = schema_retriever(
+        {"question": "查询订单付款", "relevant_tables": ["orders", "payments"]},
+        _make_join_repair_catalog(tmp_path),
+    )
+
+    assert "Preferred join candidates:" in state["schema_context"]
+    assert "Avoid weaker join candidates:" in state["schema_context"]
+    assert "`payments`.`order_no` = `orders`.`order_no`" in state["schema_context"]
+    assert "`payments`.`trace_no` = `orders`.`trace_no`" in state["schema_context"]
+    assert "suspected_endpoint" in state["schema_context"]
+
+
 def test_sql_generation_prompt_guides_field_matching_rules() -> None:
     prompt = agent_nodes._build_sql_generation_prompt({
         "question": "查询起售菜品名称包含牛肉的记录",
@@ -335,7 +485,7 @@ def test_sql_generation_prompt_guides_field_matching_rules() -> None:
 
     assert "带 enum_mapping/枚举对照的字段必须使用精确匹配" in prompt
     assert "匹配值只能来自 schema_context 中该字段的 enum_mapping" in prompt
-    assert "JOIN 规则：优先使用 schema_context 中 Relations、Table Relations、hint、confidence 明确推荐的联表键" in prompt
+    assert "JOIN 规则：优先使用 schema_context 中 Preferred join candidates、Relations、Table Relations、hint、confidence、preferred_score 明确推荐的联表键" in prompt
     assert "名称类字符串字段" in prompt
     assert "默认使用 LIKE 模糊匹配" in prompt
     assert "字段类型或业务含义不确定时，优先使用 LIKE" in prompt
@@ -399,6 +549,45 @@ def test_schema_context_and_fallback_sql_use_qualified_table_names() -> None:
     assert "Table `jc_experimental`.`employee`" in state["schema_context"]
     assert "`jc_experimental`.`employee`.`id` -> `jc_config`.`employee`.`id`" in state["schema_context"]
     assert "FROM `jc_config`.`employee`" in sql
+
+
+def test_join_repair_detects_weaker_candidate_with_unqualified_sql_on_qualified_catalog(tmp_path) -> None:
+    catalog = _make_join_repair_catalog(tmp_path, qualified=True)
+    sql = (
+        "SELECT `orders`.`order_no`, `payments`.`pay_amount` FROM `orders` "
+        "JOIN `payments` ON `orders`.`trace_no` = `payments`.`trace_no` "
+        "ORDER BY `orders`.`id` DESC LIMIT 20;"
+    )
+
+    message = agent_nodes._best_alternative_join_message(sql, catalog)
+
+    assert message is not None
+    assert "`orders`.`trace_no` = `payments`.`trace_no`" in message
+    assert "`sales`.`payments`.`order_no` = `sales`.`orders`.`order_no`" in message
+
+
+@pytest.mark.anyio
+async def test_agent_graph_repairs_weaker_join_before_execution(tmp_path) -> None:
+    llm_service = JoinRepairLLMService()
+    executor = JoinAwareSQLExecutor()
+    graph = build_agent_graph(
+        StubRagService(),
+        llm_service,
+        SQLValidator(),
+        executor,
+        catalog=_make_join_repair_catalog(tmp_path),
+    )
+
+    state = await graph.ainvoke({"user_input": "查询订单付款", "retry_count": 0, "max_retries": 3})
+
+    assert state["status"] == "ready"
+    assert state["row_count"] == 1
+    assert state["retry_count"] == 1
+    assert len(llm_service.model.sql_prompts) == 2
+    assert executor.executed_sql == [state["generated_sql"]]
+    assert "`orders`.`order_no` = `payments`.`order_no`" in state["generated_sql"]
+    assert "`orders`.`trace_no` = `payments`.`trace_no`" in state["previous_sql"]
+    assert any("JOIN" in prompt and "trace_no" in prompt and "order_no" in prompt for prompt in llm_service.model.sql_prompts[1:])
 
 
 @pytest.mark.anyio

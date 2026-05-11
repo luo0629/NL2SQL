@@ -187,6 +187,7 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Stage 2 relation fields: `SchemaRelation.ranking_score: float | None` and `SchemaRelation.validation_summary: str | None` may be attached for runtime-validated join candidates.
 - Stage 3 graph fields: `SchemaCatalog.relationship_graph: RelationshipGraphArtifact | None` is reserved for offline governance artifacts and future graph-driven retrieval.
 - Stage 3 artifact models include: `ColumnGovernanceMetric`, `JoinCoverageMetric`, `RelationshipGraphNode`, `RelationshipGraphEdge`, `RelationshipGraphSummary`, `RelationshipGraphArtifact`.
+- Main-path join-priority context: `schema_retriever` may render `Preferred join candidates:` and `Avoid weaker join candidates:` sections derived from relation / governance signals.
 - SQL state fields: `AgentState.generated_sql: str`, `AgentState.validation_error: str`, `AgentState.previous_sql: str`, `AgentState.retry_count: int`, `AgentState.max_retries: int`.
 - Execution path: `SQLExecutor.execute(sql: str, params: list[object] | None = None, max_rows: int | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
 - EXPLAIN path: `SQLExecutor.explain(sql: str, params: list[object] | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
@@ -209,7 +210,8 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Relationship graph artifacts must include at least: node/edge topology, column quality, join coverage, deprecated field status, summary metrics, and safe diagnostics.
 - Governance artifact filenames must use a schema-scope fingerprint rather than raw database URLs, and the JSON payload must not leak database passwords or local absolute paths.
 - In join coverage metrics, a table with zero join candidates must report `coverage_ratio = 0.0`, not `1.0`.
-- Qualified and unqualified table names (for example `jc_experimental.weituo` vs `weituo`) must both resolve against enrichment data for table, column, and relation hints.
+- Qualified and unqualified table names (for example `jc_experimental.weituo` vs `weituo`) must both resolve against enrichment data for table, column, relation hints, and SQL join-equality comparison.
+- Main-path join repair must treat relation ranking / validation / governance signals as executable constraints, not display-only text. When the generated SQL uses a weaker join equality for the same table pair while a stronger alternative exists, the validator path should raise a structured validation error and let the existing retry loop regenerate SQL.
 - `sql_generator` must generate SQL directly from `question`, `intent`, `schema_context`, `previous_sql`, `validation_error`, and `retry_count`; do not route the main path through `SemanticQuery` or `sql_plan` rendering.
 - `sql_validator` must run read-only safety checks before any database interaction, then run `EXPLAIN` only for MySQL-compatible URLs.
 - Non-MySQL test/development URLs may skip `EXPLAIN` with debug metadata; they must not silently execute invalid SQL before read-only validation.
@@ -228,6 +230,7 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Governance artifact path leaks raw DB password or absolute local path -> reject the artifact design; use a fingerprinted filename and safe payload fields only.
 - Table has zero join candidates -> `JoinCoverageMetric.coverage_ratio` must be `0.0`.
 - Config override uses qualified table names while runtime lookup uses short names -> enrichment lookup must still resolve correctly.
+- Generated SQL joins the same table pair on a clearly weaker key while stronger preferred candidates exist -> return a structured validation error and retry generation before execution.
 - Unsafe SQL -> `SQLValidator` rejects before `EXPLAIN` and before execution.
 - MySQL `EXPLAIN` failure -> set `validation_error`, increment retry count, and retry generation until `max_retries`.
 - Non-MySQL URL -> skip `EXPLAIN` with controlled debug reason, then rely on read-only validation and executor behavior.
@@ -236,9 +239,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 
 ### 5. Good/Base/Bad Cases
 
-- Good: LLM picks real tables, schema context includes comments/defaults plus `cross_table_diff`, shared-key joins are inferred only for credible business fields, ambiguous or risky candidates receive bounded runtime validation, and `schema_sync` emits a safe relationship graph artifact with column quality / join coverage / deprecated status ready for later graph-driven retrieval.
+- Good: LLM picks real tables, schema context includes comments/defaults plus `cross_table_diff`, shared-key joins are inferred only for credible business fields, ambiguous or risky candidates receive bounded runtime validation, `schema_sync` emits a safe relationship graph artifact with column quality / join coverage / deprecated status, and the main path retries when SQL still picks a weaker join key for the same table pair.
 - Base: LLM unavailable; fallback picks real catalog tables and generates a conservative SELECT over real schema.
-- Bad: SQL is generated from a template plan, static hard-coded schema, hard-coded business-table relations, a runtime-probe design that samples every candidate relation without budget control, or a governance artifact that leaks connection secrets / local machine paths.
+- Bad: SQL is generated from a template plan, static hard-coded schema, hard-coded business-table relations, a runtime-probe design that samples every candidate relation without budget control, a governance artifact that leaks connection secrets / local machine paths, or a main path that only displays preferred candidates but still executes weaker joins unchanged.
 
 ### 6. Tests Required
 
@@ -255,6 +258,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Unit/governance: `schema_sync` attaches `relationship_graph` and writes a safe artifact file under `schema_governance_artifact_dir`.
 - Unit/governance: artifact JSON includes `artifact_file` self-description, summary metrics, column quality, join coverage, deprecated status, and diagnostics.
 - Unit/governance: zero-candidate tables produce `coverage_ratio == 0.0`.
+- Unit/graph: schema context exposes `Preferred join candidates` and `Avoid weaker join candidates` when stronger/weaker alternatives coexist.
+- Unit/graph: qualified catalog relations still block weaker unqualified SQL joins for the same table pair.
+- Unit/graph: weaker join selection yields a structured validation error, increments retry, preserves `previous_sql`, and prevents execution until a stronger alternative is chosen.
 - Unit/graph: validation failure retries generation up to `max_retries=3` and never executes failed SQL.
 - Unit/integration: high-level query returns `sql`, `rows`, `columns`, `row_count`, and `execution_summary` through the existing API contract.
 
@@ -263,41 +269,44 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 #### Wrong
 
 ```python
-artifact = RelationshipGraphArtifact(...)
-artifact_path.write_text(artifact.model_dump_json())
-artifact.artifact_file = artifact_path.name
+schema_context += "\nPreferred join candidates: ..."
+# Still allow any join equality through to execution.
 ```
 
 #### Correct
 
 ```python
-artifact = RelationshipGraphArtifact(...)
-artifact.artifact_file = artifact_path.name
-artifact_path.write_text(artifact.model_dump_json())
+message = _best_alternative_join_message(sql, catalog)
+if message:
+    raise DangerousSQLError(message)
 ```
 
 #### Wrong
 
 ```python
-coverage_ratio = 1.0 if not candidate_columns else covered / total
+if relation.from_qualified_table == left_table and relation.to_qualified_table == right_table:
+    ...
 ```
 
 #### Correct
 
 ```python
-coverage_ratio = 0.0 if not candidate_columns else covered / total
+if _join_relation_pair_matches_tables(relation, left_table, right_table):
+    ...  # qualified/unqualified variants normalize to the same pair
 ```
 
 #### Wrong
 
 ```python
-catalog.relationship_graph = build_relationship_graph_artifact(...)
-graph.add_node("relationship_graph", use_relationship_graph)
+# value_validation imports sqlglot, but pyproject.toml does not declare it
 ```
 
 #### Correct
 
-```python
-catalog.relationship_graph = build_relationship_graph_artifact(...)
-# Keep the existing LangGraph node sequence unchanged for now.
+```toml
+[project]
+dependencies = [
+  ...,
+  "sqlglot>=27.11.0",
+]
 ```
