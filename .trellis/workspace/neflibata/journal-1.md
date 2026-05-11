@@ -504,3 +504,36 @@ Implemented stage-3 schema governance artifacts, relationship graph generation, 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: Finalize bad join-key selection fix
+
+**Date**: 2026-05-11
+**Task**: Finalize bad join-key selection fix
+**Branch**: `main`
+
+### Summary
+
+Archived the join-key selection follow-up task after the feature work commit and recorded the session wrap-up.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8fbcc98` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

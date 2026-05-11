@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 15
-- **Last Active**: 2026-05-10
+- **Total Sessions**: 16
+- **Last Active**: 2026-05-11
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~506 | Active |
+| `journal-1.md` | ~539 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 16 | 2026-05-11 | Finalize bad join-key selection fix | `8fbcc98` | `main` |
 | 15 | 2026-05-10 | Stage 3 schema governance graph artifacts | `d6d5ac6`, `5d88e82` | `main` |
 | 14 | 2026-05-10 | Stage 2 join reliability runtime probes | `a453ef2`, `26eeec5`, `2e88fc5` | `main` |
 | 13 | 2026-05-10 | Enterprise join reliability and README refresh | `ac5d035` | `main` |
