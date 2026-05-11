@@ -490,7 +490,7 @@ def test_sql_generation_prompt_guides_field_matching_rules() -> None:
     assert "默认使用 LIKE 模糊匹配" in prompt
     assert "字段类型或业务含义不确定时，优先使用 LIKE" in prompt
     assert "必须使用 MySQL 全限定表名" in prompt
-    assert "`database_name`.`table_name`" in prompt
+    assert "`jc_config`.`table`" in prompt
 
 
 def test_fallback_sql_prefers_display_columns_over_bare_id() -> None:
@@ -499,7 +499,129 @@ def test_fallback_sql_prefers_display_columns_over_bare_id() -> None:
     select_clause = sql.split(" FROM ", 1)[0]
     assert select_clause == "SELECT `name`, `price`, `status`"
     assert "`id`" not in select_clause
+    assert "ORDER BY `created_at` DESC, `id` DESC" in sql
+
+
+def test_fallback_sql_prefers_semantic_time_field_for_ordering() -> None:
+    sql = build_fallback_sql("查询最新菜品", _make_dish_catalog(), ["dish"])
+
+    assert "ORDER BY `created_at` DESC, `id` DESC" in sql
+
+
+def test_fallback_sql_uses_field_semantics_for_ordering(monkeypatch: pytest.MonkeyPatch) -> None:
+    catalog = attach_business_semantics(SchemaCatalog(
+        database="test_db",
+        tables=[
+            SchemaTable(
+                name="news",
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="headline", data_type="VARCHAR", nullable=True, semantic_role="dimension"),
+                    SchemaColumn(name="published_on", data_type="DATETIME", nullable=True),
+                ],
+            )
+        ],
+    ))
+
+    monkeypatch.setattr(
+        "app.config_loader.get_app_config",
+        lambda: SimpleNamespace(
+            field_semantics={
+                "fields": {
+                    "news": {
+                        "published_on": {
+                            "semantic_role": "timestamp",
+                            "business_terms": ["发布时间"],
+                        }
+                    }
+                }
+            },
+            agent_strategy={},
+        ),
+    )
+
+    sql = build_fallback_sql("查询最新公告", catalog, ["news"])
+
+    assert "ORDER BY `published_on` DESC, `id` DESC" in sql
+
+
+def test_fallback_sql_prefers_business_identifier_when_no_explicit_time_intent() -> None:
+    catalog = attach_business_semantics(SchemaCatalog(
+        database="test_db",
+        tables=[
+            SchemaTable(
+                name="orders",
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, description="业务订单编号", semantic_role="dimension", business_terms=["订单号", "单号"]),
+                    SchemaColumn(name="created_at", data_type="DATETIME", nullable=True, semantic_role="timestamp", description="下单时间"),
+                    SchemaColumn(name="customer_name", data_type="VARCHAR", nullable=True, semantic_role="dimension"),
+                ],
+            )
+        ],
+    ))
+
+    sql = build_fallback_sql("查询订单", catalog, ["orders"])
+
+    assert "ORDER BY `order_no` DESC, `id` DESC" in sql
+
+
+def test_fallback_sql_falls_back_to_primary_key_when_no_better_signal() -> None:
+    catalog = attach_business_semantics(SchemaCatalog(
+        database="test_db",
+        tables=[
+            SchemaTable(
+                name="events",
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="payload", data_type="TEXT", nullable=True),
+                ],
+            )
+        ],
+    ))
+
+    sql = build_fallback_sql("查询事件", catalog, ["events"])
+
     assert "ORDER BY `id` DESC" in sql
+
+
+def test_fallback_sql_honors_table_level_order_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    catalog = attach_business_semantics(SchemaCatalog(
+        database="test_db",
+        tables=[
+            SchemaTable(
+                name="tickets",
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="priority_rank", data_type="INTEGER", nullable=False, semantic_role="metric"),
+                    SchemaColumn(name="title", data_type="VARCHAR", nullable=True, semantic_role="dimension"),
+                ],
+            )
+        ],
+    ))
+
+    monkeypatch.setattr(
+        "app.config_loader.get_app_config",
+        lambda: SimpleNamespace(
+            field_semantics={},
+            agent_strategy={
+                "fallback": {
+                    "order_by": {
+                        "tables": {
+                            "tickets": {
+                                "column": "priority_rank",
+                                "direction": "asc",
+                            }
+                        }
+                    }
+                }
+            },
+        ),
+    )
+
+    sql = build_fallback_sql("查询工单", catalog, ["tickets"])
+
+    assert "ORDER BY `priority_rank` ASC, `id` ASC" in sql
 
 
 def test_fallback_sql_allows_identifier_when_user_explicitly_asks() -> None:
@@ -593,15 +715,14 @@ async def test_agent_graph_repairs_weaker_join_before_execution(tmp_path) -> Non
 @pytest.mark.anyio
 async def test_agent_graph_runs_six_node_pipeline_and_returns_rows() -> None:
     reset_agent_graph()
-    graph = build_agent_graph(
-        StubRagService(),
-        StubLLMService(),
-        SQLValidator(),
-        StubSQLExecutor(),
-        catalog=_make_dish_catalog(),
-    )
 
-    state = await graph.ainvoke({"user_input": "查询起售菜品", "retry_count": 0, "max_retries": 3})
+    state = await run_agent(
+        question="查询客户下单状态和用户信息",
+        rag_service=StubRagService(),
+        llm_service=StubLLMService(),
+        validator=SQLValidator(),
+        executor=StubSQLExecutor(),
+    )
 
     assert state["intent"]
     assert state["relevant_tables"]

@@ -1085,7 +1085,7 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
     parts = [
         "你是 MySQL NL2SQL 生成器。只输出一条 SQL，不要解释，不要 Markdown。",
         "硬性规则：只能生成只读 SELECT/WITH 查询；禁止 INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/TRUNCATE/GRANT/EXEC/SLEEP/BENCHMARK。",
-        "所有表名和字段名必须用反引号包裹。跨数据库或 schema_context 中显示为数据库限定的表，必须使用 MySQL 全限定表名，如 `database_name`.`table_name`。",
+        "所有表名和字段名必须用反引号包裹。跨数据库或 schema_context 中显示为数据库限定的表，必须使用 MySQL 全限定表名，如 `jc_config`.`table`、`jc_experimental`.`table`。",
         "只能使用 schema_context 中出现的表和字段；业务语义只用于解释同义词、指标、枚举和默认过滤，不能引入未出现在 schema_context 的表字段。",
         "JOIN 规则：优先使用 schema_context 中 Preferred join candidates、Relations、Table Relations、hint、confidence、preferred_score 明确推荐的联表键；若存在 Avoid weaker join candidates 或 governance=suspected_endpoint/deprecated_endpoint，除非用户明确要求，否则不要使用这些联表字段。",
         "SELECT 输出默认优先选择 schema_context 标注的 Preferred SELECT output columns 或 output=business-readable 字段，例如 name/title/amount/status/time/description。",
@@ -1114,6 +1114,175 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
     return "\n".join(parts)
 
 
+def _normalized_text(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def _table_config_candidates(table: SchemaTable) -> list[str]:
+    candidates = [_table_identity(table), table.name]
+    return list(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+
+def _field_semantic_overrides_for_table(table: SchemaTable) -> dict[str, dict[str, Any]]:
+    try:
+        from app.config_loader import get_app_config
+
+        fields_config = get_app_config().field_semantics
+    except Exception:
+        return {}
+
+    fields = fields_config.get("fields", {}) if isinstance(fields_config, dict) else {}
+    if not isinstance(fields, dict):
+        return {}
+    for candidate in _table_config_candidates(table):
+        entry = fields.get(candidate)
+        if isinstance(entry, dict):
+            return {
+                str(column_name).lower(): field_data
+                for column_name, field_data in entry.items()
+                if isinstance(field_data, dict)
+            }
+    return {}
+
+
+def _fallback_order_strategy_override(table: SchemaTable) -> dict[str, str] | None:
+    try:
+        from app.config_loader import get_app_config
+
+        strategy = get_app_config().agent_strategy
+    except Exception:
+        return None
+
+    if not isinstance(strategy, dict):
+        return None
+    fallback = strategy.get("fallback", {})
+    if not isinstance(fallback, dict):
+        return None
+    order_by = fallback.get("order_by", {})
+    if not isinstance(order_by, dict):
+        return None
+    table_overrides = order_by.get("tables", {})
+    if not isinstance(table_overrides, dict):
+        return None
+
+    override: Any = None
+    for candidate in _table_config_candidates(table):
+        override = table_overrides.get(candidate)
+        if override is not None:
+            break
+    if override is None:
+        return None
+    if isinstance(override, str):
+        return {"column": override, "direction": "desc"}
+    if not isinstance(override, dict):
+        return None
+
+    column_name = str(override.get("column") or "").strip()
+    if not column_name:
+        return None
+    direction = str(override.get("direction") or "desc").strip().lower()
+    if direction not in {"asc", "desc"}:
+        direction = "desc"
+    return {"column": column_name, "direction": direction}
+
+
+def _question_order_direction(question: str) -> str:
+    normalized = _normalized_text(question)
+    ascending_terms = ("最早", "最小", "最低", "最少", "升序", "asc", "ascending", "oldest", "earliest", "lowest", "smallest")
+    if any(term in normalized for term in ascending_terms):
+        return "ASC"
+    return "DESC"
+
+
+def _order_intent_bonus(question: str, column: SchemaColumn, field_override: dict[str, Any] | None) -> float:
+    normalized = _normalized_text(question)
+    if not normalized:
+        return 0.0
+
+    role = _normalized_text(str((field_override or {}).get("semantic_role") or column.semantic_role or ""))
+    description = _normalized_text(str((field_override or {}).get("description") or column.description or ""))
+    business_terms = [
+        _normalized_text(str(term))
+        for term in [*(column.business_terms or []), *((field_override or {}).get("business_terms") or [])]
+        if str(term).strip()
+    ]
+    tokens = [
+        _normalized_text(column.name),
+        description,
+        *business_terms,
+    ]
+
+    def contains_any(terms: tuple[str, ...]) -> bool:
+        return any(term in normalized for term in terms)
+
+    if contains_any(("最新", "最近", "近", "last", "latest", "newest", "recent")):
+        if role == "timestamp" or any(token in " ".join(tokens) for token in ("time", "date", "时间", "日期", "created", "updated")):
+            return 80.0
+    if contains_any(("最早", "最初", "earliest", "oldest")):
+        if role == "timestamp" or any(token in " ".join(tokens) for token in ("time", "date", "时间", "日期", "created", "updated")):
+            return 80.0
+    if contains_any(("金额", "价格", "销售额", "销量", "数量", "最高", "最大", "top", "排行", "排名", "most", "largest", "highest")):
+        if role == "metric" or any(token in " ".join(tokens) for token in ("amount", "price", "total", "count", "qty", "quantity", "金额", "价格", "销量", "数量")):
+            return 64.0
+    if contains_any(("编号", "单号", "编码", "代码", "code", "number", "no")):
+        if any(token in " ".join(tokens) for token in ("编号", "单号", "编码", "代码", "code", "number", "_no", "_code")):
+            return 52.0
+    return 0.0
+
+
+def _semantic_order_score(column: SchemaColumn, field_override: dict[str, Any] | None) -> float:
+    role = _normalized_text(str((field_override or {}).get("semantic_role") or column.semantic_role or ""))
+    name = _normalized_text(column.name)
+    description = _normalized_text(str((field_override or {}).get("description") or column.description or ""))
+    business_terms = [
+        _normalized_text(str(term))
+        for term in [*(column.business_terms or []), *((field_override or {}).get("business_terms") or [])]
+        if str(term).strip()
+    ]
+    combined = " ".join([name, description, *business_terms])
+
+    if role == "timestamp" or any(token in combined for token in ("time", "date", "时间", "日期", "created", "updated")):
+        return 18.0
+    if any(token in combined for token in ("单号", "编号", "编码", "代码", "order_no", "code", "number", "_no", "_code")):
+        return 28.0
+    if role == "metric":
+        return 10.0
+    return 0.0
+
+
+def _select_fallback_ordering(table: SchemaTable, question: str) -> tuple[list[str], str]:
+    if not table.columns:
+        return [], "DESC"
+
+    column_lookup = {column.name.lower(): column for column in table.columns}
+    strategy_override = _fallback_order_strategy_override(table)
+    if strategy_override is not None:
+        override_column = column_lookup.get(strategy_override["column"].lower())
+        if override_column is not None:
+            primary_keys = [column.name for column in table.columns if column.is_primary_key and column.name != override_column.name]
+            return [override_column.name, *primary_keys[:1]], strategy_override["direction"].upper()
+
+    field_overrides = _field_semantic_overrides_for_table(table)
+    ranked: list[tuple[float, int, SchemaColumn]] = []
+    for index, column in enumerate(table.columns):
+        override = field_overrides.get(column.name.lower())
+        score = _order_intent_bonus(question, column, override)
+        score += _semantic_order_score(column, override)
+        if column.is_primary_key:
+            score += 8.0
+        if _is_identifier_like_column_name(column.name):
+            score -= 6.0
+        if _normalized_text(column.name) in _INTERNAL_AUDIT_COLUMNS:
+            score -= 10.0
+        ranked.append((score, index, column))
+
+    best_score, _best_index, best_column = max(ranked, key=lambda item: (item[0], -item[1]))
+    if best_score <= 8.0:
+        best_column = next((column for column in table.columns if column.is_primary_key), best_column)
+    tie_breakers = [column.name for column in table.columns if column.is_primary_key and column.name != best_column.name]
+    return [best_column.name, *tie_breakers[:1]], _question_order_direction(question)
+
+
 def build_fallback_sql(question: str, catalog: SchemaCatalog | None = None, relevant_tables: list[str] | None = None) -> str:
     tables = _catalog_tables(catalog)
     if not tables:
@@ -1130,10 +1299,11 @@ def build_fallback_sql(question: str, catalog: SchemaCatalog | None = None, rele
     table = table_by_name[selected_name]
     columns = _select_display_columns(table, question, limit=5)
     select_expr = ", ".join("*" if column == "*" else _quote_identifier(column) for column in columns)
-    order_column = next((column.name for column in table.columns if column.is_primary_key), None) or (table.columns[0].name if table.columns else None)
+    order_columns, order_direction = _select_fallback_ordering(table, question)
     sql = f"SELECT {select_expr} FROM {_qualified_table_name(table)}"
-    if order_column:
-        sql += f" ORDER BY {_quote_identifier(order_column)} DESC"
+    if order_columns:
+        order_expr = ", ".join(f"{_quote_identifier(column)} {order_direction}" for column in order_columns)
+        sql += f" ORDER BY {order_expr}"
     sql += " LIMIT 20;"
     return sql
 
