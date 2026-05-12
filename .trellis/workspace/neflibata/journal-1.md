@@ -747,3 +747,38 @@ Added scoped is_enable enum generation for the current .env table scope, documen
 ### Next Steps
 
 - None - task complete
+
+
+## Session 23: Wire scoped field examples into prompts
+
+**Date**: 2026-05-12
+**Task**: Wire scoped field examples into prompts
+**Branch**: `main`
+
+### Summary
+
+Updated field_examples for the current jzjc scope, injected matching field hints into SQL generation prompts, documented the lightweight prompt usage rules, and refreshed the current schema governance artifact.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4bbe87f` | (see git log) |
+| `98a9fd8` | (see git log) |
+| `1629b48` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
