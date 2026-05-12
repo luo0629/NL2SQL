@@ -35,6 +35,17 @@ _COMMON_TABLE_SUFFIXES = (
     "表",
 )
 
+_SCOPED_IS_ENABLE_TABLES = frozenset(
+    {
+        "jzjc.jiance_price",
+        "jzjc.hetong_price",
+        "jzjc.gongcheng_price",
+        "jzjc.weituo",
+    }
+)
+
+_IS_ENABLE_ENUM_VALUES = {"0": "不启用", "1": "启用"}
+
 def _read_yaml_mapping(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -312,17 +323,41 @@ def _build_field_semantics_payload(snapshot: LiveSchemaSnapshot) -> dict[str, An
     }
 
 
+def _scoped_is_enable_tables() -> set[str]:
+    settings = get_settings()
+    return {
+        table_name.casefold()
+        for table_name in settings.effective_schema_include_tables
+        if table_name.casefold() in _SCOPED_IS_ENABLE_TABLES
+    }
+
+
+def _generated_enum_values(*, table_name: str, column_name: str, comment: str | None, scoped_is_enable_tables: set[str]) -> dict[str, str]:
+    values = _extract_enum_values(comment)
+    if values:
+        return values
+    if column_name.casefold() != "is_enable":
+        return {}
+    if table_name.casefold() not in scoped_is_enable_tables:
+        return {}
+    return dict(_IS_ENABLE_ENUM_VALUES)
+
+
 def _build_enum_mappings_payload(snapshot: LiveSchemaSnapshot) -> dict[str, Any]:
     enums: dict[str, Any] = {}
+    scoped_is_enable_tables = _scoped_is_enable_tables()
     for database_name, inspection in snapshot.inspections.items():
         for table_name in inspection.table_names:
             qualified = _qualified_table_name(database_name, table_name, expose_table_database=snapshot.expose_table_database)
             for raw_column in inspection.columns_by_table.get(table_name, []):
                 column_name = str(raw_column.get("name", "")).strip()
                 comment = str(raw_column.get("comment") or "").strip() or None
-                values = _extract_enum_values(comment)
-                if not values and column_name.lower() == "deleted":
-                    values = {"0": "未删除", "1": "删除"}
+                values = _generated_enum_values(
+                    table_name=qualified,
+                    column_name=column_name,
+                    comment=comment,
+                    scoped_is_enable_tables=scoped_is_enable_tables,
+                )
                 if values:
                     enums[f"{qualified}.{column_name}"] = {"values": values}
     return {

@@ -24,7 +24,6 @@ def _make_snapshot() -> LiveSchemaSnapshot:
                         {"name": "id", "type": "int", "nullable": False, "default": None, "comment": "订单ID"},
                         {"name": "user_id", "type": "int", "nullable": False, "default": None, "comment": "用户ID"},
                         {"name": "status", "type": "tinyint", "nullable": False, "default": None, "comment": "1=待支付, 2=已支付"},
-                        {"name": "deleted", "type": "tinyint", "nullable": False, "default": "0", "comment": None},
                     ],
                     "users": [
                         {"name": "id", "type": "int", "nullable": False, "default": None, "comment": "用户ID"},
@@ -44,6 +43,79 @@ def _make_snapshot() -> LiveSchemaSnapshot:
                 ],
                 indexes_by_table={"orders": ["idx_orders_user_id"], "users": []},
                 comments_by_table={"orders": "订单主表", "users": "用户表"},
+            )
+        },
+    )
+
+
+def _make_is_enable_scope_snapshot() -> LiveSchemaSnapshot:
+    return LiveSchemaSnapshot(
+        default_database="jzjc",
+        configured_databases=["jzjc"],
+        supports_named_schemas=True,
+        expose_table_database=True,
+        inspections={
+            "jzjc": SchemaInspection(
+                table_names=[
+                    "jiance_price",
+                    "hetong_price",
+                    "gongcheng_price",
+                    "weituo",
+                    "parameter",
+                    "conclusion_template",
+                ],
+                columns_by_table={
+                    "jiance_price": [
+                        {"name": "id", "type": "int", "nullable": False, "default": None, "comment": "主键"},
+                        {"name": "is_enable", "type": "tinyint", "nullable": False, "default": 1, "comment": None},
+                    ],
+                    "hetong_price": [
+                        {"name": "id", "type": "int", "nullable": False, "default": None, "comment": "主键"},
+                        {"name": "is_enable", "type": "tinyint", "nullable": False, "default": 1, "comment": ""},
+                    ],
+                    "gongcheng_price": [
+                        {"name": "id", "type": "int", "nullable": False, "default": None, "comment": "主键"},
+                        {"name": "is_enable", "type": "tinyint", "nullable": False, "default": 1, "comment": None},
+                    ],
+                    "weituo": [
+                        {"name": "id", "type": "int", "nullable": False, "default": None, "comment": "主键"},
+                        {"name": "is_enable", "type": "tinyint", "nullable": False, "default": 1, "comment": None},
+                    ],
+                    "parameter": [
+                        {"name": "id", "type": "int", "nullable": False, "default": None, "comment": "主键"},
+                        {"name": "is_enable", "type": "tinyint", "nullable": False, "default": 1, "comment": None},
+                    ],
+                    "conclusion_template": [
+                        {"name": "id", "type": "int", "nullable": False, "default": None, "comment": "主键"},
+                        {"name": "is_enable", "type": "tinyint", "nullable": False, "default": 1, "comment": None},
+                        {"name": "is_enabled", "type": "tinyint", "nullable": False, "default": 1, "comment": None},
+                    ],
+                },
+                primary_keys_by_table={
+                    "jiance_price": ["id"],
+                    "hetong_price": ["id"],
+                    "gongcheng_price": ["id"],
+                    "weituo": ["id"],
+                    "parameter": ["id"],
+                    "conclusion_template": ["id"],
+                },
+                foreign_keys=[],
+                indexes_by_table={
+                    "jiance_price": [],
+                    "hetong_price": [],
+                    "gongcheng_price": [],
+                    "weituo": [],
+                    "parameter": [],
+                    "conclusion_template": [],
+                },
+                comments_by_table={
+                    "jiance_price": "检测价格表",
+                    "hetong_price": "合同价格表",
+                    "gongcheng_price": "工程价格表",
+                    "weituo": "委托表",
+                    "parameter": "参数表",
+                    "conclusion_template": "结论模板表",
+                },
             )
         },
     )
@@ -104,10 +176,8 @@ def test_refresh_generated_config_yaml_writes_generated_sections_and_preserves_o
     assert "testdb.orders" in field_semantics["generated"]["fields"]
     assert field_semantics["generated"]["fields"]["testdb.orders"]["status"]["value_range"] == "1=待支付, 2=已支付"
     assert field_semantics["generated"]["fields"]["testdb.orders"]["id"]["semantic_role"] == "identifier"
-    assert field_semantics["generated"]["fields"]["testdb.orders"]["deleted"]["semantic_role"] == "internal"
 
     assert enum_mappings["generated"]["enums"]["testdb.orders.status"]["values"] == {"1": "待支付", "2": "已支付"}
-    assert enum_mappings["generated"]["enums"]["testdb.orders.deleted"]["values"] == {"0": "未删除", "1": "删除"}
 
     aliases = [item["alias"] for item in business_terms["generated"]["terms"]]
     assert "订单" in aliases
@@ -131,6 +201,48 @@ def test_refresh_generated_config_yaml_avoids_meaningless_rewrite(monkeypatch, t
     assert first_result is True
     assert second_result is False
     assert first_content == second_content
+
+
+def test_refresh_generated_config_yaml_adds_scoped_is_enable_enum_mappings(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("DATABASE_URL", "mysql+aiomysql://user:pass@localhost/jzjc")
+    monkeypatch.setenv("DATABASE_NAMES", "jzjc")
+    monkeypatch.setenv(
+        "SCHEMA_INCLUDE_TABLES",
+        ",".join(
+            [
+                "jzjc.jiance_price",
+                "jzjc.hetong_price",
+                "jzjc.gongcheng_price",
+                "jzjc.weituo",
+            ]
+        ),
+    )
+    monkeypatch.setenv("CONFIG_DIR", str(tmp_path / "config"))
+    get_settings.cache_clear()
+
+    with patch("app.config_generation.inspect_live_schema", new=AsyncMock(return_value=_make_is_enable_scope_snapshot())), patch(
+        "app.config_generation.reload_app_config"
+    ):
+        result = __import__("asyncio").run(refresh_generated_config_yaml())
+
+    assert result is True
+
+    enum_mappings = yaml.safe_load((tmp_path / "config" / "enum_mappings.yaml").read_text(encoding="utf-8"))
+    generated_enums = enum_mappings["generated"]["enums"]
+
+    expected_tables = {
+        "jzjc.jiance_price.is_enable",
+        "jzjc.hetong_price.is_enable",
+        "jzjc.gongcheng_price.is_enable",
+        "jzjc.weituo.is_enable",
+    }
+    assert expected_tables.issubset(generated_enums.keys())
+    for key in expected_tables:
+        assert generated_enums[key]["values"] == {"0": "不启用", "1": "启用"}
+
+    assert "jzjc.parameter.is_enable" not in generated_enums
+    assert "jzjc.conclusion_template.is_enable" not in generated_enums
+    assert "jzjc.conclusion_template.is_enabled" not in generated_enums
 
 
 def test_refresh_startup_schema_artifacts_uses_single_snapshot_for_config_and_semantics(monkeypatch, tmp_path: Path) -> None:
