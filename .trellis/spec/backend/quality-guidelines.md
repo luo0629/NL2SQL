@@ -98,3 +98,4 @@ These modules define contracts shared across multiple layers.
 - Assuming `deleted` being marked as `internal` is enough to keep deleted rows out of normal query results; without explicit generation-layer filtering, soft-deleted rows can still leak into default query results
 - Assuming every `is_enable` column in the database should automatically gain the same enum semantics; in this project the current MVP is intentionally limited to the active `.env` table scope plus an explicit allowlist
 - Assuming `field_examples.yaml` should be injected wholesale like few-shot prompts; this file is meant for lightweight field hints, so broad injection can reintroduce stale schema bias and overwhelm the actual schema context
+- Assuming `COUNT(id)` is a safe default for every “多少条/数量/个数” question; technical primary keys often produce a structurally valid but semantically weak business count
