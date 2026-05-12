@@ -712,3 +712,38 @@ Added generation-layer deleted filtering defaults, captured the deleted enum sem
 ### Next Steps
 
 - None - task complete
+
+
+## Session 22: Add scoped is_enable enum semantics
+
+**Date**: 2026-05-12
+**Task**: Add scoped is_enable enum semantics
+**Branch**: `main`
+
+### Summary
+
+Added scoped is_enable enum generation for the current .env table scope, documented the enum mapping rules, and refreshed the current schema governance artifact.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e8064e9` | (see git log) |
+| `94cb7f9` | (see git log) |
+| `4a503b4` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

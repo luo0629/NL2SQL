@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 21
+- **Total Sessions**: 22
 - **Last Active**: 2026-05-12
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~714 | Active |
+| `journal-1.md` | ~749 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 22 | 2026-05-12 | Add scoped is_enable enum semantics | `e8064e9`, `94cb7f9`, `4a503b4` | `main` |
 | 21 | 2026-05-12 | Add deleted soft-delete query defaults | `0ef81d3`, `c512756`, `c89e714` | `main` |
 | 20 | 2026-05-12 | Clean high-risk old database residue | `8ea4cba`, `1f0f426`, `aaa3736` | `main` |
 | 19 | 2026-05-11 | Govern fallback ORDER BY selection | `2145b33`, `ac64af9`, `beee96b` | `main` |
