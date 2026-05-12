@@ -1082,6 +1082,7 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
     retry_count = state.get("retry_count", 0)
     previous_sql = state.get("generated_sql") or state.get("previous_sql") or ""
     validation_error = state.get("validation_error", "")
+    field_example_context = _render_field_example_context(state)
     parts = [
         "你是 MySQL NL2SQL 生成器。只输出一条 SQL，不要解释，不要 Markdown。",
         "硬性规则：只能生成只读 SELECT/WITH 查询；禁止 INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/TRUNCATE/GRANT/EXEC/SLEEP/BENCHMARK。",
@@ -1101,6 +1102,8 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
         f"相关表：{', '.join(state.get('relevant_tables', []))}",
         "business_semantic_context:",
         state.get("semantic_context", "") or "(无)",
+        "field_example_context:",
+        field_example_context or "(无匹配字段示例)",
         "schema_context:",
         state.get("schema_context", ""),
     ]
@@ -1122,6 +1125,109 @@ def _normalized_text(value: str | None) -> str:
 def _table_config_candidates(table: SchemaTable) -> list[str]:
     candidates = [_table_identity(table), table.name]
     return list(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+
+def _table_ref_config_candidates(table_ref: str) -> list[str]:
+    normalized = table_ref.strip().replace("`", "")
+    if not normalized:
+        return []
+    parts = [part for part in normalized.split(".") if part]
+    candidates = [normalized]
+    if parts:
+        candidates.append(parts[-1])
+    if len(parts) >= 2:
+        candidates.append(".".join(parts[-2:]))
+    return list(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+
+def _collect_field_example_hints(state: AgentState, limit: int = 6) -> list[dict[str, str]]:
+    question = _normalized_text(_question_text(state))
+    relevant_tables = [table for table in state.get("relevant_tables", []) if str(table).strip()]
+    if not question or not relevant_tables:
+        return []
+
+    try:
+        from app.config_loader import get_app_config
+
+        examples_config = get_app_config().field_examples
+    except Exception:
+        return []
+
+    tables = examples_config.get("tables", {}) if isinstance(examples_config, dict) else {}
+    if not isinstance(tables, dict):
+        return []
+
+    scored_hints: list[tuple[int, int, dict[str, str]]] = []
+    order_index = 0
+    for table_ref in relevant_tables:
+        table_entry: dict[str, Any] | None = None
+        matched_table_name = table_ref
+        for candidate in _table_ref_config_candidates(table_ref):
+            entry = tables.get(candidate)
+            if isinstance(entry, dict):
+                table_entry = entry
+                matched_table_name = candidate
+                break
+        if table_entry is None:
+            continue
+
+        fields = table_entry.get("fields", {})
+        if not isinstance(fields, dict):
+            continue
+
+        for field_name, field_entry in fields.items():
+            if not isinstance(field_entry, dict):
+                continue
+            aliases = [str(item).strip() for item in field_entry.get("aliases", []) if str(item).strip()]
+            examples = [item for item in field_entry.get("examples", []) if isinstance(item, dict)]
+            keywords = [str(field_name).strip(), *aliases]
+            score = 0
+            for keyword in keywords:
+                if keyword and _normalized_text(keyword) in question:
+                    score += 8
+            example_questions = [str(item.get("question") or "").strip() for item in examples if str(item.get("question") or "").strip()]
+            for example_question in example_questions:
+                if _normalized_text(example_question) and any(
+                    part and part in question
+                    for part in [_normalized_text(example_question), *[_normalized_text(alias) for alias in aliases]]
+                ):
+                    score += 3
+                    break
+            if score <= 0:
+                continue
+
+            hint = {
+                "table": matched_table_name,
+                "field": str(field_name).strip(),
+                "aliases": " / ".join(aliases[:4]) or "(无别名)",
+                "example_question": example_questions[0] if example_questions else "",
+                "sql_hint": str((examples[0].get("sql_pattern") if examples else "") or "").strip(),
+            }
+            scored_hints.append((score, order_index, hint))
+            order_index += 1
+
+    scored_hints.sort(key=lambda item: (-item[0], item[1]))
+    return [hint for _score, _index, hint in scored_hints[:limit]]
+
+
+def _render_field_example_context(state: AgentState) -> str:
+    hints = _collect_field_example_hints(state)
+    if not hints:
+        return ""
+
+    lines = [
+        "Matched field example hints (只作字段命中/语义消歧参考，不是可直接照抄的 few-shot SQL):"
+    ]
+    for hint in hints:
+        line = (
+            f"- `{hint['table']}`.`{hint['field']}`: aliases={hint['aliases']}"
+        )
+        if hint["example_question"]:
+            line += f"; example_question={hint['example_question']}"
+        if hint["sql_hint"]:
+            line += f"; sql_hint={hint['sql_hint']}"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def _field_semantic_overrides_for_table(table: SchemaTable) -> dict[str, dict[str, Any]]:

@@ -265,3 +265,18 @@ def test_app_config_with_real_config_dir() -> None:
     assert isinstance(config.few_shot_samples, dict)
     assert isinstance(config.field_examples, dict)
     assert isinstance(config.agent_strategy, dict)
+
+
+def test_real_field_examples_focus_on_current_jzjc_scope() -> None:
+    path = Path(__file__).resolve().parents[2] / "config" / "field_examples.yaml"
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    tables = payload["generated"]["tables"]
+    assert "jzjc.weituo" in tables
+    assert "jzjc.acceptance_slip" in tables
+    assert "jzjc.hetong" in tables
+    assert "jzjc.hetong_account" in tables
+    assert "jzjc.jiance_price" in tables
+    assert "jzjc.hetong_price" in tables
+    assert "jzjc.gongcheng_price" in tables
+    assert "jc_experimental" not in path.read_text(encoding="utf-8")

@@ -513,6 +513,85 @@ def test_sql_generation_prompt_guides_field_matching_rules() -> None:
     assert "`jc_experimental`.`table`" not in prompt
 
 
+FIELD_EXAMPLES_CONFIG = {
+    "tables": {
+        "jzjc.weituo": {
+            "fields": {
+                "wtbh": {
+                    "aliases": ["委托编号", "委托单号"],
+                    "examples": [
+                        {
+                            "question": "查询委托编号为 WT2024-001 的委托",
+                            "sql_pattern": "WHERE `wtbh` = 'WT2024-001'",
+                        }
+                    ],
+                },
+                "wt_org": {
+                    "aliases": ["委托单位", "送检单位"],
+                    "examples": [
+                        {
+                            "question": "查询委托单位包含 建工 的委托",
+                            "sql_pattern": "WHERE `wt_org` LIKE '%建工%'",
+                        }
+                    ],
+                },
+            }
+        },
+        "jzjc.acceptance_slip": {
+            "fields": {
+                "sldbh": {
+                    "aliases": ["受理单编号"],
+                    "examples": [
+                        {
+                            "question": "查询受理单编号为 SLD2024-001 的记录",
+                            "sql_pattern": "WHERE `sldbh` = 'SLD2024-001'",
+                        }
+                    ],
+                }
+            }
+        },
+    }
+}
+
+
+def test_sql_generation_prompt_injects_only_matching_field_examples(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "app.config_loader.get_app_config",
+        lambda: SimpleNamespace(field_examples=FIELD_EXAMPLES_CONFIG),
+    )
+
+    prompt = agent_nodes._build_sql_generation_prompt({
+        "question": "查询委托单位包含建工的委托",
+        "schema_context": "Table `jzjc`.`weituo`\n- `wt_org` (VARCHAR; comment=委托单位)\n- `wtbh` (VARCHAR; comment=委托编号)",
+        "semantic_context": "(无)",
+        "relevant_tables": ["jzjc.weituo"],
+    })
+
+    assert "field_example_context:" in prompt
+    assert "Matched field example hints" in prompt
+    assert "`jzjc.weituo`.`wt_org`" in prompt
+    assert "委托单位包含 建工" in prompt
+    assert "`jzjc.acceptance_slip`.`sldbh`" not in prompt
+
+
+def test_sql_generation_prompt_skips_field_examples_without_question_overlap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "app.config_loader.get_app_config",
+        lambda: SimpleNamespace(field_examples=FIELD_EXAMPLES_CONFIG),
+    )
+
+    prompt = agent_nodes._build_sql_generation_prompt({
+        "question": "统计最近创建的委托记录数",
+        "schema_context": "Table `jzjc`.`weituo`\n- `create_time` (DATETIME)\n- `wtbh` (VARCHAR; comment=委托编号)",
+        "semantic_context": "(无)",
+        "relevant_tables": ["jzjc.weituo"],
+    })
+
+    assert "field_example_context:" in prompt
+    assert "(无匹配字段示例)" in prompt
+    assert "`jzjc.weituo`.`wtbh`" not in prompt
+
+
 def test_fallback_sql_prefers_display_columns_over_bare_id() -> None:
     sql = build_fallback_sql("查询菜品", _make_dish_catalog(), ["dish"])
 
