@@ -96,3 +96,4 @@ These modules define contracts shared across multiple layers.
 - Assuming stable `ORDER BY` automatically means semantically correct ordering; fallback list queries can still look wrong if they sort by technical primary keys instead of business time/identifier fields
 - Assuming old sample database names are harmless if they appear only in prompt examples or `.env.example`; these still shape model outputs and new-environment bootstrap behavior, so they count as runtime/initialization residue
 - Assuming `deleted` being marked as `internal` is enough to keep deleted rows out of normal query results; without explicit generation-layer filtering, soft-deleted rows can still leak into default query results
+- Assuming every `is_enable` column in the database should automatically gain the same enum semantics; in this project the current MVP is intentionally limited to the active `.env` table scope plus an explicit allowlist

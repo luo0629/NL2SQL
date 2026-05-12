@@ -265,6 +265,8 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - User explicitly asks for deleted records -> use `deleted = 1`.
 - User explicitly asks for all records / include deleted -> do not force the default `deleted = 0` filter.
 - `deleted` enum mapping is absent from generated YAML -> generate `0=未删除, 1=删除` as the default soft-delete value semantics.
+- Table has `is_enable` but is outside the current `.env` / `SCHEMA_INCLUDE_TABLES` scope -> do not generate an automatic `is_enable` enum mapping for it in this MVP.
+- Table is inside the current scope and in the explicitly supported `is_enable` table list -> generate `0=不启用, 1=启用` for `is_enable`.
 - Unsafe SQL -> `SQLValidator` rejects before `EXPLAIN` and before execution.
 - MySQL `EXPLAIN` failure -> set `validation_error`, increment retry count, and retry generation until `max_retries`.
 - Non-MySQL URL -> skip `EXPLAIN` with controlled debug reason, then rely on read-only validation and executor behavior.
@@ -314,6 +316,7 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Unit/fallback-sql: deleted-only queries append `deleted = 1`.
 - Unit/fallback-sql: all/include-deleted queries omit the default soft-delete filter.
 - Unit/config-generation: generated `enum_mappings.yaml` includes `deleted -> {0: 未删除, 1: 删除}` when schema columns expose a `deleted` field.
+- Unit/config-generation: generated `enum_mappings.yaml` includes `is_enable -> {0: 不启用, 1: 启用}` only for the current schema/table scope that is both (a) present in `SCHEMA_INCLUDE_TABLES` and (b) in the explicitly allowed `is_enable` table set.
 - Unit/integration: high-level query returns `sql`, `rows`, `columns`, `row_count`, and `execution_summary` through the existing API contract.
 
 ### 7. Wrong vs Correct
@@ -436,4 +439,19 @@ sql = "SELECT ... FROM `orders` LIMIT 20"
 soft_delete_condition = _soft_delete_filter_condition(table, question)
 if soft_delete_condition:
     sql += f" WHERE {soft_delete_condition}"
+```
+
+#### Wrong
+
+```python
+# Any table with an is_enable column anywhere in the database gets a default enum mapping.
+if column_name == "is_enable":
+    values = {"0": "不启用", "1": "启用"}
+```
+
+#### Correct
+
+```python
+if column_name.casefold() == "is_enable" and table_name.casefold() in scoped_is_enable_tables:
+    values = {"0": "不启用", "1": "启用"}
 ```
