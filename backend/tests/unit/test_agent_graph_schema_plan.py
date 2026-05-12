@@ -275,6 +275,23 @@ def _make_dish_catalog() -> SchemaCatalog:
     ))
 
 
+def _make_soft_delete_catalog() -> SchemaCatalog:
+    return attach_business_semantics(SchemaCatalog(
+        database="test_db",
+        tables=[
+            SchemaTable(
+                name="orders",
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, semantic_role="dimension", business_terms=["订单号"]),
+                    SchemaColumn(name="deleted", data_type="TINYINT", nullable=False, description="软删除标记", semantic_role="internal"),
+                    SchemaColumn(name="created_at", data_type="DATETIME", nullable=True, semantic_role="timestamp"),
+                ],
+            )
+        ],
+    ))
+
+
 def _make_join_repair_catalog(tmp_path, *, qualified: bool = False) -> SchemaCatalog:
     relation_kwargs = {"from_database": "sales", "to_database": "sales"} if qualified else {}
     table_database = "sales" if qualified else None
@@ -489,6 +506,7 @@ def test_sql_generation_prompt_guides_field_matching_rules() -> None:
     assert "名称类字符串字段" in prompt
     assert "默认使用 LIKE 模糊匹配" in prompt
     assert "字段类型或业务含义不确定时，优先使用 LIKE" in prompt
+    assert "软删除规则：如果相关表存在 `deleted` 字段" in prompt
     assert "必须使用 MySQL 全限定表名" in prompt
     assert "`database_name`.`table_name`" in prompt
     assert "`jc_config`.`table`" not in prompt
@@ -566,6 +584,26 @@ def test_fallback_sql_prefers_business_identifier_when_no_explicit_time_intent()
     sql = build_fallback_sql("查询订单", catalog, ["orders"])
 
     assert "ORDER BY `order_no` DESC, `id` DESC" in sql
+
+
+def test_fallback_sql_defaults_to_active_records_for_deleted_column() -> None:
+    sql = build_fallback_sql("查询订单", _make_soft_delete_catalog(), ["orders"])
+
+    assert "WHERE `deleted` = 0" in sql
+
+
+def test_fallback_sql_switches_to_deleted_records_when_user_asks_explicitly() -> None:
+    sql = build_fallback_sql("查询已删除记录", _make_soft_delete_catalog(), ["orders"])
+
+    assert "WHERE `deleted` = 1" in sql
+    assert "WHERE `deleted` = 0" not in sql
+
+
+def test_fallback_sql_allows_all_records_when_user_requests_including_deleted() -> None:
+    sql = build_fallback_sql("查询全部订单，包含已删除数据", _make_soft_delete_catalog(), ["orders"])
+
+    assert "WHERE `deleted` = 0" not in sql
+    assert "WHERE `deleted` = 1" not in sql
 
 
 def test_fallback_sql_falls_back_to_primary_key_when_no_better_signal() -> None:
@@ -716,15 +754,15 @@ async def test_agent_graph_repairs_weaker_join_before_execution(tmp_path) -> Non
 
 @pytest.mark.anyio
 async def test_agent_graph_runs_six_node_pipeline_and_returns_rows() -> None:
-    reset_agent_graph()
-
-    state = await run_agent(
-        question="查询客户下单状态和用户信息",
-        rag_service=StubRagService(),
-        llm_service=StubLLMService(),
-        validator=SQLValidator(),
-        executor=StubSQLExecutor(),
+    graph = build_agent_graph(
+        StubRagService(),
+        StubLLMService(),
+        SQLValidator(),
+        StubSQLExecutor(),
+        catalog=_make_dish_catalog(),
     )
+
+    state = await graph.ainvoke({"user_input": "查询菜品状态和价格", "retry_count": 0, "max_retries": 3})
 
     assert state["intent"]
     assert state["relevant_tables"]

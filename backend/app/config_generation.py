@@ -321,6 +321,8 @@ def _build_enum_mappings_payload(snapshot: LiveSchemaSnapshot) -> dict[str, Any]
                 column_name = str(raw_column.get("name", "")).strip()
                 comment = str(raw_column.get("comment") or "").strip() or None
                 values = _extract_enum_values(comment)
+                if not values and column_name.lower() == "deleted":
+                    values = {"0": "未删除", "1": "删除"}
                 if values:
                     enums[f"{qualified}.{column_name}"] = {"values": values}
     return {

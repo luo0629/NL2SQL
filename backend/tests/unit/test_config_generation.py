@@ -24,6 +24,7 @@ def _make_snapshot() -> LiveSchemaSnapshot:
                         {"name": "id", "type": "int", "nullable": False, "default": None, "comment": "订单ID"},
                         {"name": "user_id", "type": "int", "nullable": False, "default": None, "comment": "用户ID"},
                         {"name": "status", "type": "tinyint", "nullable": False, "default": None, "comment": "1=待支付, 2=已支付"},
+                        {"name": "deleted", "type": "tinyint", "nullable": False, "default": "0", "comment": None},
                     ],
                     "users": [
                         {"name": "id", "type": "int", "nullable": False, "default": None, "comment": "用户ID"},
@@ -103,8 +104,10 @@ def test_refresh_generated_config_yaml_writes_generated_sections_and_preserves_o
     assert "testdb.orders" in field_semantics["generated"]["fields"]
     assert field_semantics["generated"]["fields"]["testdb.orders"]["status"]["value_range"] == "1=待支付, 2=已支付"
     assert field_semantics["generated"]["fields"]["testdb.orders"]["id"]["semantic_role"] == "identifier"
+    assert field_semantics["generated"]["fields"]["testdb.orders"]["deleted"]["semantic_role"] == "internal"
 
     assert enum_mappings["generated"]["enums"]["testdb.orders.status"]["values"] == {"1": "待支付", "2": "已支付"}
+    assert enum_mappings["generated"]["enums"]["testdb.orders.deleted"]["values"] == {"0": "未删除", "1": "删除"}
 
     aliases = [item["alias"] for item in business_terms["generated"]["terms"]]
     assert "订单" in aliases

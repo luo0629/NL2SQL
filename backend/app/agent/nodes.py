@@ -1090,6 +1090,7 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
         "JOIN 规则：优先使用 schema_context 中 Preferred join candidates、Relations、Table Relations、hint、confidence、preferred_score 明确推荐的联表键；若存在 Avoid weaker join candidates 或 governance=suspected_endpoint/deprecated_endpoint，除非用户明确要求，否则不要使用这些联表字段。",
         "SELECT 输出默认优先选择 schema_context 标注的 Preferred SELECT output columns 或 output=business-readable 字段，例如 name/title/amount/status/time/description。",
         "WHERE 字段匹配规则：带 enum_mapping/枚举对照的字段必须使用精确匹配（= 或 IN），匹配值只能来自 schema_context 中该字段的 enum_mapping，禁止编造枚举值。",
+        "软删除规则：如果相关表存在 `deleted` 字段，默认查询未删除数据时应添加 `deleted` = 0；当用户明确要求查询已删除/删除记录时使用 `deleted` = 1；当用户明确要求查询全部数据、所有记录或包含已删除数据时，可以不加 `deleted` 过滤。",
         "名称类字符串字段（如 city/城市、name/姓名/客户名、product_name/商品名、title/标题、description/描述等）默认使用 LIKE 模糊匹配，并用通配符包裹用户给出的关键词。",
         "当字段类型或业务含义不确定时，优先使用 LIKE 模糊匹配，不要直接使用等号精确匹配。",
         "id、*_id、create_user、update_user、create_time、update_time 等 output=internal/join/filter/audit 字段仍可用于 JOIN、WHERE、ORDER BY 和校验，但除非用户明确询问 ID/编号/code/no/number 或没有更可读字段，否则不要放进 SELECT 列表。",
@@ -1192,6 +1193,61 @@ def _question_order_direction(question: str) -> str:
     if any(term in normalized for term in ascending_terms):
         return "ASC"
     return "DESC"
+
+
+def _deleted_column_name(table: SchemaTable) -> str | None:
+    for column in table.columns:
+        if column.name.lower() == "deleted":
+            return column.name
+    return None
+
+
+def _soft_delete_filter_mode(question: str) -> str:
+    normalized = _normalized_text(question)
+    include_deleted_terms = (
+        "全部数据",
+        "所有数据",
+        "全部记录",
+        "所有记录",
+        "全部订单",
+        "所有订单",
+        "包含删除",
+        "包含已删除",
+        "包括删除",
+        "包括已删除",
+        "含删除",
+        "含已删除",
+    )
+    if any(term in normalized for term in include_deleted_terms):
+        return "all"
+
+    deleted_only_terms = (
+        "已删除数据",
+        "已删除记录",
+        "删除记录",
+        "被删除数据",
+        "被删除记录",
+        "已删数据",
+        "已删记录",
+        "已删除",
+        "被删除",
+    )
+    if any(term in normalized for term in deleted_only_terms):
+        return "deleted_only"
+    return "active_only"
+
+
+def _soft_delete_filter_condition(table: SchemaTable, question: str) -> str | None:
+    deleted_column = _deleted_column_name(table)
+    if deleted_column is None:
+        return None
+
+    filter_mode = _soft_delete_filter_mode(question)
+    if filter_mode == "all":
+        return None
+    if filter_mode == "deleted_only":
+        return f"{_quote_identifier(deleted_column)} = 1"
+    return f"{_quote_identifier(deleted_column)} = 0"
 
 
 def _order_intent_bonus(question: str, column: SchemaColumn, field_override: dict[str, Any] | None) -> float:
@@ -1301,6 +1357,9 @@ def build_fallback_sql(question: str, catalog: SchemaCatalog | None = None, rele
     select_expr = ", ".join("*" if column == "*" else _quote_identifier(column) for column in columns)
     order_columns, order_direction = _select_fallback_ordering(table, question)
     sql = f"SELECT {select_expr} FROM {_qualified_table_name(table)}"
+    soft_delete_condition = _soft_delete_filter_condition(table, question)
+    if soft_delete_condition:
+        sql += f" WHERE {soft_delete_condition}"
     if order_columns:
         order_expr = ", ".join(f"{_quote_identifier(column)} {order_direction}" for column in order_columns)
         sql += f" ORDER BY {order_expr}"
