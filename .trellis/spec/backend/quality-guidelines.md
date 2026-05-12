@@ -97,3 +97,4 @@ These modules define contracts shared across multiple layers.
 - Assuming old sample database names are harmless if they appear only in prompt examples or `.env.example`; these still shape model outputs and new-environment bootstrap behavior, so they count as runtime/initialization residue
 - Assuming `deleted` being marked as `internal` is enough to keep deleted rows out of normal query results; without explicit generation-layer filtering, soft-deleted rows can still leak into default query results
 - Assuming every `is_enable` column in the database should automatically gain the same enum semantics; in this project the current MVP is intentionally limited to the active `.env` table scope plus an explicit allowlist
+- Assuming `field_examples.yaml` should be injected wholesale like few-shot prompts; this file is meant for lightweight field hints, so broad injection can reintroduce stale schema bias and overwhelm the actual schema context

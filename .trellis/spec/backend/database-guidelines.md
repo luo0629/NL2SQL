@@ -190,6 +190,7 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Main-path join-priority context: `schema_retriever` may render `Preferred join candidates:` and `Avoid weaker join candidates:` sections derived from relation / governance signals.
 - Fallback ORDER BY selection path: `build_fallback_sql() -> _select_fallback_ordering()`.
 - Soft-delete fallback filter path: `build_fallback_sql() -> _soft_delete_filter_condition()`.
+- Field-example hint path: `_build_sql_generation_prompt() -> _render_field_example_context() -> _collect_field_example_hints()`.
 - SQL state fields: `AgentState.generated_sql: str`, `AgentState.validation_error: str`, `AgentState.previous_sql: str`, `AgentState.retry_count: int`, `AgentState.max_retries: int`.
 - Execution path: `SQLExecutor.execute(sql: str, params: list[object] | None = None, max_rows: int | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
 - EXPLAIN path: `SQLExecutor.explain(sql: str, params: list[object] | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
@@ -233,6 +234,8 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Non-MySQL test/development URLs may skip `EXPLAIN` with debug metadata; they must not silently execute invalid SQL before read-only validation.
 - Database switching must stay behind `Settings.database_url`; do not branch on hard-coded test database names or table names.
 - Runtime prompt examples and initialization templates must also stay database-agnostic; do not use `jc_config`, `jc_experimental`, or other retired sample database names as the default fully qualified table examples presented to the model or to users bootstrapping `.env`.
+- `field_examples.yaml` is a lightweight field-disambiguation asset, not a full few-shot SQL template source. When used, it should be filtered by relevant tables and question overlap, and only a small matching subset should be injected into the SQL generation prompt.
+- `field_examples.yaml` is currently a local ignored config asset rather than a version-controlled generated contract file; code must tolerate it being absent.
 - Startup refresh must be schema-driven. Runtime metadata enrichment, table descriptions, enum hints, and startup-generated YAML must not depend on Cangqiong Waimai / `jc_experimental`-specific fallback table names or status mappings as live defaults.
 - Startup refresh should preserve user `overrides` while rebuilding `generated` sections from the current schema.
 - Startup refresh should avoid rewriting YAML files when the rendered content is unchanged.
@@ -259,6 +262,8 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Startup refresh sees unchanged generated content -> skip file rewrite.
 - Live schema has sparse comments or enum hints -> continue with schema-derived best effort output; do not inject sample-database fallback knowledge as truth.
 - Runtime prompt text or `.env.example` still references `jc_config` / `jc_experimental` as the default example database after migration -> treat as stale sample-database residue and replace with generic placeholders.
+- `field_examples.yaml` contains legacy schema examples unrelated to the current active table scope -> refresh or localize it before prompt injection; do not let stale example tables silently bias generation.
+- `field_examples.yaml` is absent or has no matches for the current question/tables -> omit field-example hints and continue generation normally.
 - Fallback query has no table-level override and no strong semantic time/identifier/metric signal -> fall back to primary key ordering as the deterministic last resort.
 - Fallback query uses a semantic business field for ordering -> append a primary key tie-breaker when available.
 - Table has a `deleted` column and the user asks a normal list/detail query -> default to `deleted = 0`.
@@ -275,9 +280,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 
 ### 5. Good/Base/Bad Cases
 
-- Good: for a table with `deleted`, default queries add `deleted = 0`, deleted-only queries switch to `deleted = 1`, include-deleted queries omit the default filter, and fallback ordering still uses the most relevant semantic sort key with a primary-key tie-breaker.
-- Base: no explicit deleted intent is present, so generation applies the default undeleted filter while still using deterministic fallback ordering.
-- Bad: queries against soft-delete tables mix deleted and undeleted rows by default, or always force `deleted = 0` even when the user explicitly asks to see deleted records.
+- Good: the prompt includes only a few field examples relevant to the currently selected tables and user wording, helping the model distinguish close fields without turning into a schema-agnostic SQL template dump.
+- Base: no relevant field examples are found, so SQL generation proceeds from schema/business semantics alone.
+- Bad: the full `field_examples.yaml` (including stale or unrelated tables) is injected wholesale, biasing the model toward irrelevant fields or old schemas.
 
 ### 6. Tests Required
 
@@ -307,6 +312,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Unit/schema-sync: live table descriptions and enum hints come from current schema/comments or validated overrides, not from Cangqiong/jc_experimental fallback constants.
 - Unit/prompt: SQL generation prompt uses generic fully-qualified table placeholders and does not regress to `jc_config` / `jc_experimental` examples.
 - Unit/config: `.env.example` uses generic database/table placeholders rather than retired sample database defaults.
+- Unit/prompt: field example injection includes only matching examples for the current relevant tables and question overlap.
+- Unit/prompt: field example injection cleanly skips when there is no matching table/question overlap.
+- Unit/config: the locally maintained `field_examples.yaml` content is aligned to the current active table scope rather than stale `jc_experimental` examples.
 - Unit/fallback-sql: explicit recency intent prefers semantic time fields for `ORDER BY`.
 - Unit/fallback-sql: without explicit time intent, business identifier fields can outrank generic technical timestamps.
 - Unit/fallback-sql: table-level strategy override can force fallback order column and direction.
@@ -408,6 +416,20 @@ await refresh_startup_schema_artifacts()
 
 ```python
 "必须使用 MySQL 全限定表名，如 `database_name`.`table_name`。"
+```
+
+#### Wrong
+
+```python
+prompt_parts.append(yaml.safe_dump(config.field_examples))
+# Entire field_examples file is injected no matter which tables are relevant.
+```
+
+#### Correct
+
+```python
+field_example_context = _render_field_example_context(state)
+prompt_parts.extend(["field_example_context:", field_example_context or "(无匹配字段示例)"])
 ```
 
 #### Wrong
