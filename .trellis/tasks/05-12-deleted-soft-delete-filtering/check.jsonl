@@ -1,0 +1,3 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify deleted default filtering and enum mapping behavior against backend contracts"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify tests and contract-sensitive deleted filtering behavior"}

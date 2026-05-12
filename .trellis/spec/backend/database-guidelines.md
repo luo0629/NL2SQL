@@ -189,6 +189,7 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Stage 3 artifact models include: `ColumnGovernanceMetric`, `JoinCoverageMetric`, `RelationshipGraphNode`, `RelationshipGraphEdge`, `RelationshipGraphSummary`, `RelationshipGraphArtifact`.
 - Main-path join-priority context: `schema_retriever` may render `Preferred join candidates:` and `Avoid weaker join candidates:` sections derived from relation / governance signals.
 - Fallback ORDER BY selection path: `build_fallback_sql() -> _select_fallback_ordering()`.
+- Soft-delete fallback filter path: `build_fallback_sql() -> _soft_delete_filter_condition()`.
 - SQL state fields: `AgentState.generated_sql: str`, `AgentState.validation_error: str`, `AgentState.previous_sql: str`, `AgentState.retry_count: int`, `AgentState.max_retries: int`.
 - Execution path: `SQLExecutor.execute(sql: str, params: list[object] | None = None, max_rows: int | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
 - EXPLAIN path: `SQLExecutor.explain(sql: str, params: list[object] | None = None, timeout_seconds: float | None = None) -> SQLExecutionResult`.
@@ -225,6 +226,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Fallback ORDER BY selection should use this precedence: table-level strategy override -> explicit user order intent -> field semantics / business terms -> primary key fallback.
 - When fallback ordering uses a non-primary business field, it should append a primary key tie-breaker when available so row order remains deterministic.
 - MVP scope for this rule is limited to `build_fallback_sql()`; it does not by itself imply prompt-wide or validator-wide ORDER BY governance.
+- When a selected table contains a `deleted` column, generated query behavior should treat soft-delete as a default business constraint: default queries prefer `deleted = 0`, explicit deleted-only queries use `deleted = 1`, and explicit all/include-deleted queries may omit the default soft-delete filter.
+- `field_semantics.yaml` may continue to classify `deleted` as `internal`, but `enum_mappings.yaml` should carry the value semantics (`0=未删除`, `1=删除`) so generation can map user language onto the correct comparison.
+- MVP scope for soft-delete handling is generation-layer only; it does not yet require validator-enforced retries for missing `deleted` filters.
 - `sql_validator` must run read-only safety checks before any database interaction, then run `EXPLAIN` only for MySQL-compatible URLs.
 - Non-MySQL test/development URLs may skip `EXPLAIN` with debug metadata; they must not silently execute invalid SQL before read-only validation.
 - Database switching must stay behind `Settings.database_url`; do not branch on hard-coded test database names or table names.
@@ -257,6 +261,10 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Runtime prompt text or `.env.example` still references `jc_config` / `jc_experimental` as the default example database after migration -> treat as stale sample-database residue and replace with generic placeholders.
 - Fallback query has no table-level override and no strong semantic time/identifier/metric signal -> fall back to primary key ordering as the deterministic last resort.
 - Fallback query uses a semantic business field for ordering -> append a primary key tie-breaker when available.
+- Table has a `deleted` column and the user asks a normal list/detail query -> default to `deleted = 0`.
+- User explicitly asks for deleted records -> use `deleted = 1`.
+- User explicitly asks for all records / include deleted -> do not force the default `deleted = 0` filter.
+- `deleted` enum mapping is absent from generated YAML -> generate `0=未删除, 1=删除` as the default soft-delete value semantics.
 - Unsafe SQL -> `SQLValidator` rejects before `EXPLAIN` and before execution.
 - MySQL `EXPLAIN` failure -> set `validation_error`, increment retry count, and retry generation until `max_retries`.
 - Non-MySQL URL -> skip `EXPLAIN` with controlled debug reason, then rely on read-only validation and executor behavior.
@@ -265,9 +273,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 
 ### 5. Good/Base/Bad Cases
 
-- Good: fallback SQL for a generic list query orders by the most relevant semantic field (for example a business time field or business identifier), and adds a primary-key tie-breaker so repeated runs stay stable.
-- Base: no explicit user ordering intent or semantic ordering hint is available, so fallback SQL degrades to deterministic primary-key ordering.
-- Bad: fallback SQL always orders by primary key / first column DESC even when the table has a clearer business time or business identifier field, making result order look semantically wrong to users.
+- Good: for a table with `deleted`, default queries add `deleted = 0`, deleted-only queries switch to `deleted = 1`, include-deleted queries omit the default filter, and fallback ordering still uses the most relevant semantic sort key with a primary-key tie-breaker.
+- Base: no explicit deleted intent is present, so generation applies the default undeleted filter while still using deterministic fallback ordering.
+- Bad: queries against soft-delete tables mix deleted and undeleted rows by default, or always force `deleted = 0` even when the user explicitly asks to see deleted records.
 
 ### 6. Tests Required
 
@@ -302,6 +310,10 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Unit/fallback-sql: table-level strategy override can force fallback order column and direction.
 - Unit/fallback-sql: no better signal falls back to primary key ordering.
 - Unit/fallback-sql: non-primary semantic order field appends primary key tie-breaker when available.
+- Unit/fallback-sql: default queries on tables with `deleted` append `deleted = 0`.
+- Unit/fallback-sql: deleted-only queries append `deleted = 1`.
+- Unit/fallback-sql: all/include-deleted queries omit the default soft-delete filter.
+- Unit/config-generation: generated `enum_mappings.yaml` includes `deleted -> {0: 未删除, 1: 删除}` when schema columns expose a `deleted` field.
 - Unit/integration: high-level query returns `sql`, `rows`, `columns`, `row_count`, and `execution_summary` through the existing API contract.
 
 ### 7. Wrong vs Correct
@@ -409,4 +421,19 @@ order_columns, order_direction = _select_fallback_ordering(table, question)
 if order_columns:
     order_expr = ", ".join(f"`{column}` {order_direction}" for column in order_columns)
     sql += f" ORDER BY {order_expr}"
+```
+
+#### Wrong
+
+```python
+# Table has a deleted flag, but fallback SQL returns mixed records by default.
+sql = "SELECT ... FROM `orders` LIMIT 20"
+```
+
+#### Correct
+
+```python
+soft_delete_condition = _soft_delete_filter_condition(table, question)
+if soft_delete_condition:
+    sql += f" WHERE {soft_delete_condition}"
 ```
