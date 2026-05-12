@@ -1085,7 +1085,7 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
     parts = [
         "你是 MySQL NL2SQL 生成器。只输出一条 SQL，不要解释，不要 Markdown。",
         "硬性规则：只能生成只读 SELECT/WITH 查询；禁止 INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/TRUNCATE/GRANT/EXEC/SLEEP/BENCHMARK。",
-        "所有表名和字段名必须用反引号包裹。跨数据库或 schema_context 中显示为数据库限定的表，必须使用 MySQL 全限定表名，如 `jc_config`.`table`、`jc_experimental`.`table`。",
+        "所有表名和字段名必须用反引号包裹。跨数据库或 schema_context 中显示为数据库限定的表，必须使用 MySQL 全限定表名，如 `database_name`.`table_name`。",
         "只能使用 schema_context 中出现的表和字段；业务语义只用于解释同义词、指标、枚举和默认过滤，不能引入未出现在 schema_context 的表字段。",
         "JOIN 规则：优先使用 schema_context 中 Preferred join candidates、Relations、Table Relations、hint、confidence、preferred_score 明确推荐的联表键；若存在 Avoid weaker join candidates 或 governance=suspected_endpoint/deprecated_endpoint，除非用户明确要求，否则不要使用这些联表字段。",
         "SELECT 输出默认优先选择 schema_context 标注的 Preferred SELECT output columns 或 output=business-readable 字段，例如 name/title/amount/status/time/description。",

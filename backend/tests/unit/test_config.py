@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from app.config import Settings
 
 
@@ -71,3 +73,14 @@ def test_settings_parses_and_dedupes_schema_include_tables() -> None:
         "|databases=jc_experimental"
         "|tables=jc_experimental.weituo,jc_experimental.weituo_clearing_detail,jc_experimental.weituo_settle_bill"
     )
+
+
+
+def test_env_example_uses_generic_database_placeholders() -> None:
+    env_example = Path(__file__).resolve().parents[2] / ".env.example"
+    content = env_example.read_text(encoding="utf-8")
+
+    assert "DATABASE_NAMES=your_database" in content
+    assert "SCHEMA_INCLUDE_TABLES=your_database.your_table_a,your_database.your_table_b" in content
+    assert "jc_experimental" not in content
+    assert "jc_config" not in content

@@ -490,7 +490,9 @@ def test_sql_generation_prompt_guides_field_matching_rules() -> None:
     assert "默认使用 LIKE 模糊匹配" in prompt
     assert "字段类型或业务含义不确定时，优先使用 LIKE" in prompt
     assert "必须使用 MySQL 全限定表名" in prompt
-    assert "`jc_config`.`table`" in prompt
+    assert "`database_name`.`table_name`" in prompt
+    assert "`jc_config`.`table`" not in prompt
+    assert "`jc_experimental`.`table`" not in prompt
 
 
 def test_fallback_sql_prefers_display_columns_over_bare_id() -> None:
