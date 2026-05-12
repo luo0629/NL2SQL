@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 23
+- **Total Sessions**: 24
 - **Last Active**: 2026-05-12
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~784 | Active |
+| `journal-1.md` | ~819 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 24 | 2026-05-12 | Improve plain COUNT field selection | `9d62861`, `6d0e2c0`, `e1032e9` | `main` |
 | 23 | 2026-05-12 | Wire scoped field examples into prompts | `4bbe87f`, `98a9fd8`, `1629b48` | `main` |
 | 22 | 2026-05-12 | Add scoped is_enable enum semantics | `e8064e9`, `94cb7f9`, `4a503b4` | `main` |
 | 21 | 2026-05-12 | Add deleted soft-delete query defaults | `0ef81d3`, `c512756`, `c89e714` | `main` |

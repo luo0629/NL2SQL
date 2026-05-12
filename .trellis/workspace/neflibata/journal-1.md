@@ -782,3 +782,38 @@ Updated field_examples for the current jzjc scope, injected matching field hints
 ### Next Steps
 
 - None - task complete
+
+
+## Session 24: Improve plain COUNT field selection
+
+**Date**: 2026-05-12
+**Task**: Improve plain COUNT field selection
+**Branch**: `main`
+
+### Summary
+
+Improved plain COUNT selection so count queries no longer default to technical id keys, documented the count-selection rules, and refreshed the current schema governance artifact.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9d62861` | (see git log) |
+| `6d0e2c0` | (see git log) |
+| `e1032e9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
