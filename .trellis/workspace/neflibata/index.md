@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 19
-- **Last Active**: 2026-05-11
+- **Total Sessions**: 20
+- **Last Active**: 2026-05-12
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~644 | Active |
+| `journal-1.md` | ~679 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 20 | 2026-05-12 | Clean high-risk old database residue | `8ea4cba`, `1f0f426`, `aaa3736` | `main` |
 | 19 | 2026-05-11 | Govern fallback ORDER BY selection | `2145b33`, `ac64af9`, `beee96b` | `main` |
 | 18 | 2026-05-11 | Refresh startup schema-driven artifacts | `4b707ba`, `9d15779`, `b5ba7cc` | `main` |
 | 17 | 2026-05-11 | Govern agent strategy hardcoding | `4d71386`, `2f37cda`, `0ef393a` | `main` |

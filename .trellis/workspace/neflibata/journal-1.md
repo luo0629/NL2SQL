@@ -642,3 +642,38 @@ Improved fallback ORDER BY selection using semantic signals, documented the fall
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: Clean high-risk old database residue
+
+**Date**: 2026-05-12
+**Task**: Clean high-risk old database residue
+**Branch**: `main`
+
+### Summary
+
+Removed old sample-database defaults from the live prompt and .env example, documented the cleanup rules, and recorded the refreshed schema governance artifacts for the current scopes.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8ea4cba` | (see git log) |
+| `1f0f426` | (see git log) |
+| `aaa3736` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
