@@ -94,3 +94,4 @@ These modules define contracts shared across multiple layers.
 - Assuming join ranking, validation, or governance signals are useful just because they appear in schema_context; if the validator path does not enforce them, weaker joins can still reach execution unchanged
 - Assuming a table-level disabled key is handled just by hiding it from the prompt; if `nodes.py` selection logic and validator enforcement do not both honor the config, the key can still leak into generated SQL
 - Assuming stable `ORDER BY` automatically means semantically correct ordering; fallback list queries can still look wrong if they sort by technical primary keys instead of business time/identifier fields
+- Assuming old sample database names are harmless if they appear only in prompt examples or `.env.example`; these still shape model outputs and new-environment bootstrap behavior, so they count as runtime/initialization residue

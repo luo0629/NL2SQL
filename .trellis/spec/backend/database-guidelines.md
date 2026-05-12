@@ -228,6 +228,7 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - `sql_validator` must run read-only safety checks before any database interaction, then run `EXPLAIN` only for MySQL-compatible URLs.
 - Non-MySQL test/development URLs may skip `EXPLAIN` with debug metadata; they must not silently execute invalid SQL before read-only validation.
 - Database switching must stay behind `Settings.database_url`; do not branch on hard-coded test database names or table names.
+- Runtime prompt examples and initialization templates must also stay database-agnostic; do not use `jc_config`, `jc_experimental`, or other retired sample database names as the default fully qualified table examples presented to the model or to users bootstrapping `.env`.
 - Startup refresh must be schema-driven. Runtime metadata enrichment, table descriptions, enum hints, and startup-generated YAML must not depend on Cangqiong Waimai / `jc_experimental`-specific fallback table names or status mappings as live defaults.
 - Startup refresh should preserve user `overrides` while rebuilding `generated` sections from the current schema.
 - Startup refresh should avoid rewriting YAML files when the rendered content is unchanged.
@@ -253,6 +254,7 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Startup refresh cannot connect to the live database -> log a safe diagnostic, continue application startup, and keep last-known / existing YAML artifacts without crashing the service.
 - Startup refresh sees unchanged generated content -> skip file rewrite.
 - Live schema has sparse comments or enum hints -> continue with schema-derived best effort output; do not inject sample-database fallback knowledge as truth.
+- Runtime prompt text or `.env.example` still references `jc_config` / `jc_experimental` as the default example database after migration -> treat as stale sample-database residue and replace with generic placeholders.
 - Fallback query has no table-level override and no strong semantic time/identifier/metric signal -> fall back to primary key ordering as the deterministic last resort.
 - Fallback query uses a semantic business field for ordering -> append a primary key tie-breaker when available.
 - Unsafe SQL -> `SQLValidator` rejects before `EXPLAIN` and before execution.
@@ -293,6 +295,8 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Unit/config-generation: startup refresh updates the 4 core `backend/config` YAML files, preserves `overrides`, and skips rewriting unchanged content.
 - Unit/business-semantics: startup-linked schema sync refreshes `business_semantics_<scope>.yaml`, preserves `overrides`, and keeps scope-specific filenames.
 - Unit/schema-sync: live table descriptions and enum hints come from current schema/comments or validated overrides, not from Cangqiong/jc_experimental fallback constants.
+- Unit/prompt: SQL generation prompt uses generic fully-qualified table placeholders and does not regress to `jc_config` / `jc_experimental` examples.
+- Unit/config: `.env.example` uses generic database/table placeholders rather than retired sample database defaults.
 - Unit/fallback-sql: explicit recency intent prefers semantic time fields for `ORDER BY`.
 - Unit/fallback-sql: without explicit time intent, business identifier fields can outrank generic technical timestamps.
 - Unit/fallback-sql: table-level strategy override can force fallback order column and direction.
@@ -377,6 +381,18 @@ await refresh_generated_config_yaml()
 await refresh_startup_schema_artifacts()
 # This unified entry refreshes core backend/config YAML first and then
 # refreshes scope-isolated business semantics YAML from the same startup path.
+```
+
+#### Wrong
+
+```python
+"必须使用 MySQL 全限定表名，如 `jc_config`.`table`、`jc_experimental`.`table`。"
+```
+
+#### Correct
+
+```python
+"必须使用 MySQL 全限定表名，如 `database_name`.`table_name`。"
 ```
 
 #### Wrong
