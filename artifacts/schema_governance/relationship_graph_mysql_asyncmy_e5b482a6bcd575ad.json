@@ -1,40 +1,48 @@
 {
   "version": "stage3-mvp-v1",
-  "database": "jc_experimental",
-  "generated_at": "2026-05-12T01:25:11.027279+00:00",
-  "scope_fingerprint": "cd3ae5cfe69e62c7",
-  "artifact_file": "relationship_graph_mysql_asyncmy_cd3ae5cfe69e62c7.json",
+  "database": "jzjc",
+  "generated_at": "2026-05-12T03:18:17.763085+00:00",
+  "scope_fingerprint": "e5b482a6bcd575ad",
+  "artifact_file": "relationship_graph_mysql_asyncmy_e5b482a6bcd575ad.json",
   "refresh_trigger": "sync_schema_metadata",
   "nodes": [
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
-      "database": "jc_experimental",
-      "column_count": 27,
-      "relation_count": 14,
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
+      "database": "jzjc",
+      "column_count": 26,
+      "relation_count": 8,
       "searchable_terms": [
         "PK",
-        "bzdj",
-        "cpdm",
         "create time",
         "create_time",
         "creator",
-        "csdm",
-        "dbdj",
         "deleted",
         "dimension",
         "id",
         "identifier",
         "internal",
-        "jc experimental",
-        "jc experimental.weituo clearing detail",
-        "jc_experimental",
-        "jc_experimental.weituo_clearing_detail",
-        "jg",
-        "jjlx",
-        "lydm",
+        "is enable",
+        "is_enable",
+        "jiance price",
+        "jiance_price",
+        "jzjc",
+        "jzjc.jiance price",
+        "jzjc.jiance_price",
+        "leaf id",
+        "leaf name",
+        "leaf_id",
+        "leaf_name",
         "metric",
+        "param name",
+        "param out id",
+        "param_name",
+        "param_out_id",
         "pk",
+        "price",
+        "price unique id",
+        "price_unique_id",
+        "remark",
         "reserve1",
         "reserve2",
         "reserve3",
@@ -42,63 +50,313 @@
         "reserve5",
         "reserve6",
         "revision",
-        "sl",
+        "sample name",
+        "sample out id",
+        "sample_name",
+        "sample_out_id",
         "tenant id",
         "tenant_id",
+        "unit name",
+        "unit_name",
         "update time",
         "update_time",
         "updater",
-        "weituo clearing detail",
-        "weituo_clearing_detail",
-        "wtbh",
-        "xmdm",
-        "ywtbh",
-        "zh tydj",
-        "zh_tydj",
-        "zk",
+        "version",
         "乐观锁",
-        "产品代码",
-        "价格",
+        "价格唯一ID（跨表引用使用此字段，非自增主键）",
+        "价格唯一id（跨表引用使用此字段，非自增主键）",
+        "价格版本号",
         "创建人",
         "创建时间",
-        "参数代码",
-        "委托清算明细",
-        "委托编号",
-        "打包单价",
-        "折后/特约单价",
-        "折扣",
-        "数量",
+        "参数名称（冗余）",
+        "参数唯一ID",
+        "参数唯一id",
+        "叶节点ID",
+        "叶节点id",
+        "叶节点名称（冗余）",
+        "备注",
         "更新人",
-        "更新时间",
+        "标准价格",
+        "标准价格表",
         "标准单价",
-        "检测项目代码",
+        "样品名称（冗余）",
+        "样品唯一ID",
+        "样品唯一id",
         "租户号",
-        "计价类型",
-        "预委托编号",
+        "计量单位（如：组、次、个）",
         "预留字段1",
         "预留字段2",
         "预留字段3",
         "预留字段4",
         "预留字段5",
-        "预留字段6",
-        "领域代码"
+        "预留字段6"
       ],
       "deprecated_column_count": 0,
       "suspected_deprecated_column_count": 6
     },
     {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "database": "jzjc",
+      "column_count": 26,
+      "relation_count": 11,
+      "searchable_terms": [
+        "PK",
+        "create time",
+        "create_time",
+        "creator",
+        "deleted",
+        "dimension",
+        "hetong price",
+        "hetong_price",
+        "htbh",
+        "htmc",
+        "id",
+        "identifier",
+        "internal",
+        "is enable",
+        "is_enable",
+        "jzjc",
+        "jzjc.hetong price",
+        "jzjc.hetong_price",
+        "leaf id",
+        "leaf name",
+        "leaf_id",
+        "leaf_name",
+        "metric",
+        "param name",
+        "param out id",
+        "param_name",
+        "param_out_id",
+        "pk",
+        "price",
+        "remark",
+        "reserve1",
+        "reserve2",
+        "reserve3",
+        "reserve4",
+        "revision",
+        "sample name",
+        "sample out id",
+        "sample_name",
+        "sample_out_id",
+        "std price",
+        "std_price",
+        "tenant id",
+        "tenant_id",
+        "unit name",
+        "unit_name",
+        "update time",
+        "update_time",
+        "updater",
+        "version",
+        "乐观锁",
+        "价格版本号",
+        "创建人",
+        "创建时间",
+        "参数名称（冗余）",
+        "参数唯一ID",
+        "参数唯一id",
+        "叶节点ID",
+        "叶节点id",
+        "叶节点名称（冗余）",
+        "合同价格",
+        "合同价格表",
+        "合同协议单价",
+        "合同名称（冗余）",
+        "合同编号",
+        "备注",
+        "更新人",
+        "标准单价（冗余，来自jiance price）",
+        "标准单价（冗余，来自jiance_price）",
+        "样品名称（冗余）",
+        "样品唯一ID",
+        "样品唯一id",
+        "租户号",
+        "计量单位",
+        "预留字段1",
+        "预留字段2",
+        "预留字段3",
+        "预留字段4"
+      ],
+      "deprecated_column_count": 0,
+      "suspected_deprecated_column_count": 4
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "database": "jzjc",
+      "column_count": 27,
+      "relation_count": 13,
+      "searchable_terms": [
+        "PK",
+        "create time",
+        "create_time",
+        "creator",
+        "deleted",
+        "dimension",
+        "gcbh",
+        "gcmc",
+        "gongcheng price",
+        "gongcheng_price",
+        "htbh",
+        "id",
+        "identifier",
+        "internal",
+        "is enable",
+        "is_enable",
+        "jzjc",
+        "jzjc.gongcheng price",
+        "jzjc.gongcheng_price",
+        "leaf id",
+        "leaf name",
+        "leaf_id",
+        "leaf_name",
+        "metric",
+        "param name",
+        "param out id",
+        "param_name",
+        "param_out_id",
+        "pk",
+        "price",
+        "remark",
+        "reserve1",
+        "reserve2",
+        "reserve3",
+        "reserve4",
+        "revision",
+        "sample name",
+        "sample out id",
+        "sample_name",
+        "sample_out_id",
+        "std price",
+        "std_price",
+        "tenant id",
+        "tenant_id",
+        "unit name",
+        "unit_name",
+        "update time",
+        "update_time",
+        "updater",
+        "version",
+        "乐观锁",
+        "价格版本号",
+        "创建人",
+        "创建时间",
+        "参数名称（冗余）",
+        "参数唯一ID",
+        "参数唯一id",
+        "叶节点ID",
+        "叶节点id",
+        "叶节点名称（冗余）",
+        "合同编号（冗余）",
+        "备注",
+        "工程价格",
+        "工程价格表",
+        "工程协议单价",
+        "工程名称（冗余）",
+        "工程编号",
+        "更新人",
+        "标准单价（冗余）",
+        "样品名称（冗余）",
+        "样品唯一ID",
+        "样品唯一id",
+        "租户号",
+        "计量单位",
+        "预留字段1",
+        "预留字段2",
+        "预留字段3",
+        "预留字段4"
+      ],
+      "deprecated_column_count": 0,
+      "suspected_deprecated_column_count": 4
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "database": "jzjc",
+      "column_count": 23,
+      "relation_count": 3,
+      "searchable_terms": [
+        "PK",
+        "balance",
+        "can credit",
+        "can_credit",
+        "create time",
+        "create_time",
+        "creator",
+        "credit amount",
+        "credit limit",
+        "credit_amount",
+        "credit_limit",
+        "deleted",
+        "dimension",
+        "frozen amount",
+        "frozen_amount",
+        "hetong account",
+        "hetong_account",
+        "ht amount",
+        "ht_amount",
+        "htbh",
+        "htmc",
+        "id",
+        "identifier",
+        "internal",
+        "jzjc",
+        "jzjc.hetong account",
+        "jzjc.hetong_account",
+        "metric",
+        "paid amount",
+        "paid_amount",
+        "pk",
+        "remark",
+        "reserve1",
+        "reserve2",
+        "reserve3",
+        "reserve4",
+        "revision",
+        "tenant id",
+        "tenant_id",
+        "total recharge",
+        "total_recharge",
+        "update time",
+        "update_time",
+        "updater",
+        "乐观锁",
+        "冻结金额",
+        "创建人",
+        "创建时间",
+        "合同名称（冗余）",
+        "合同总金额（冗余）",
+        "合同编号",
+        "合同账户",
+        "合同账户表",
+        "备注",
+        "当前挂账金额",
+        "当前账户余额",
+        "挂账最大金额（冗余）",
+        "更新人",
+        "租户号",
+        "累计充值总金额",
+        "累计已付金额",
+        "预留字段1",
+        "预留字段2",
+        "预留字段3",
+        "预留字段4"
+      ],
+      "deprecated_column_count": 0,
+      "suspected_deprecated_column_count": 4
+    },
+    {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "database": "jc_experimental",
-      "column_count": 74,
+      "qualified_table": "jzjc.weituo",
+      "database": "jzjc",
+      "column_count": 55,
       "relation_count": 12,
       "searchable_terms": [
         "PK",
-        "apply fee",
-        "apply_fee",
         "audit image url",
         "audit_image_url",
-        "baywtbh",
         "charger",
         "charger phone",
         "charger_phone",
@@ -111,36 +369,15 @@
         "enable_reason",
         "fee status",
         "fee_status",
-        "fx rec info",
-        "fx recid",
-        "fx_rec_info",
-        "fx_recid",
         "gcbh",
-        "gcbh ls",
-        "gcbh_ls",
         "gcdz",
         "gcmc",
         "htbh",
-        "htbh ls",
-        "htbh_ls",
         "id",
         "identifier",
         "internal",
         "is enable",
-        "is prt sld",
-        "is prt wtd",
-        "is repeat",
-        "is repeat cn",
         "is_enable",
-        "is_prt_sld",
-        "is_prt_wtd",
-        "is_repeat",
-        "is_repeat_cn",
-        "jc experimental",
-        "jc experimental.weituo",
-        "jc_experimental",
-        "jc_experimental.weituo",
-        "jczq",
         "jiance org address",
         "jiance org phone",
         "jiance_org_address",
@@ -156,20 +393,21 @@
         "jianzhengren",
         "jz no",
         "jz_no",
+        "jzjc",
+        "jzjc.weituo",
         "kancha org",
         "kancha_org",
-        "lydm",
+        "leaf id",
+        "leaf name",
+        "leaf_id",
+        "leaf_name",
         "metric",
-        "origin fee",
-        "origin_fee",
-        "paied",
         "pk",
-        "process instance id",
-        "process_instance_id",
         "quyang org",
         "quyang_org",
         "quyangren",
-        "qyrq",
+        "receive time",
+        "receive_time",
         "reject reason",
         "reject_reason",
         "remark",
@@ -180,26 +418,20 @@
         "reserve5",
         "reserve6",
         "revision",
+        "sample name",
+        "sample out id",
+        "sample_name",
+        "sample_out_id",
         "sheji org",
         "sheji_org",
         "shigong org",
         "shigong_org",
-        "should pay",
-        "should_pay",
-        "sld prt count",
-        "sld prt count self",
-        "sld_prt_count",
-        "sld_prt_count_self",
         "songyang org",
         "songyang_org",
         "songyangren",
-        "supervision raw data",
-        "supervision_raw_data",
         "tenant id",
         "tenant_id",
         "timestamp",
-        "tj status",
-        "tj_status",
         "total fee",
         "total_fee",
         "update time",
@@ -216,274 +448,171 @@
         "wtr",
         "wtr phone",
         "wtr_phone",
+        "wtrq",
         "wtsj",
-        "xmdm",
-        "xmmc",
-        "ywtbh",
-        "zhzk",
-        "临时合同号",
-        "临时工程号",
         "乐观锁",
         "创建人",
         "创建时间",
         "勘查单位",
-        "原费用",
         "取样人",
         "取样单位",
-        "取样日期",
-        "受理单打印次数",
-        "受理单自助打印次数",
+        "受理时间（缴费完成时间）",
+        "叶子节点ID",
+        "叶子节点id",
+        "叶子节点名称（冗余）",
         "合同编号",
-        "备案与委托编号（监管）",
         "备注",
         "委托",
         "委托人",
         "委托人电话",
+        "委托信息确认凭证图URL",
+        "委托信息确认凭证图url",
         "委托单位",
-        "委托审核凭证图URL",
-        "委托审核凭证图url",
-        "委托时间",
-        "委托状态",
+        "委托总费用（缴费后写入）",
+        "委托日期（首次提交时间）",
+        "委托时间（系统时间）",
+        "委托状态（待提交/已提交/已确认/待修改/待缴费/已受理/价格审批中等）",
         "委托类型",
         "委托编号",
         "委托表",
-        "实缴",
-        "工程名称",
-        "工程地址",
+        "工程名称（冗余）",
+        "工程地址（冗余）",
         "工程编号",
-        "应缴",
         "废弃原因",
         "建设单位",
-        "拉取监管数据详情（费县）",
         "施工单位",
-        "是否复检",
         "更新人",
-        "更新时间",
-        "未匹配的监管json",
-        "检查项目名称（样品名称）",
-        "检测周期（天）",
+        "样品名称（冗余）",
+        "样品唯一ID",
+        "样品唯一id",
         "检测机构地址",
         "检测机构电话",
-        "检测项目代码",
-        "流程实例id",
-        "申请费用",
         "监理单位",
         "监督单位",
-        "监管唯一ID（费县）",
-        "监管唯一id（费县）",
         "租户号",
-        "综合折扣",
-        "缴费状态",
+        "缴费状态（已平账/未平账）",
         "见证人",
         "见证单位",
         "见证号",
         "设计单位",
-        "调价状态",
         "负责人",
         "负责人电话",
-        "费用",
         "送样人",
         "送样单位",
-        "预委托编号",
         "预留字段1",
         "预留字段2",
         "预留字段3",
         "预留字段4",
         "预留字段5",
         "预留字段6",
-        "领域代码",
         "驳回原因"
       ],
       "deprecated_column_count": 1,
-      "suspected_deprecated_column_count": 8
-    },
-    {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
-      "database": "jc_experimental",
-      "column_count": 23,
-      "relation_count": 14,
-      "searchable_terms": [
-        "PK",
-        "all jjlx",
-        "all_jjlx",
-        "cpdm",
-        "create time",
-        "create_time",
-        "creator",
-        "deleted",
-        "dimension",
-        "id",
-        "identifier",
-        "internal",
-        "jc experimental",
-        "jc experimental.weituo clearing bill",
-        "jc_experimental",
-        "jc_experimental.weituo_clearing_bill",
-        "lydm",
-        "metric",
-        "pk",
-        "reserve1",
-        "reserve2",
-        "reserve3",
-        "reserve4",
-        "reserve5",
-        "reserve6",
-        "revision",
-        "status",
-        "tenant id",
-        "tenant_id",
-        "timestamp",
-        "total fee",
-        "total_fee",
-        "update time",
-        "update_time",
-        "updater",
-        "weituo clearing bill",
-        "weituo time",
-        "weituo_clearing_bill",
-        "weituo_time",
-        "wtbh",
-        "xmdm",
-        "ywtbh",
-        "乐观锁",
-        "产品代码",
-        "创建人",
-        "创建时间",
-        "委托时间",
-        "委托清算单",
-        "委托编号",
-        "所用的计价类型",
-        "更新人",
-        "更新时间",
-        "检测项目代码",
-        "清算状态",
-        "租户号",
-        "费用",
-        "预委托编号",
-        "预留字段1",
-        "预留字段2",
-        "预留字段3",
-        "预留字段4",
-        "预留字段5",
-        "预留字段6",
-        "领域代码"
-      ],
-      "deprecated_column_count": 0,
       "suspected_deprecated_column_count": 6
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "database": "jc_experimental",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "database": "jzjc",
       "column_count": 31,
-      "relation_count": 14,
+      "relation_count": 3,
       "searchable_terms": [
         "PK",
-        "arrears",
-        "bcsf",
-        "bcwyj",
-        "cpdm",
+        "acceptance slip",
+        "acceptance_slip",
+        "arrears amount",
+        "arrears_amount",
         "create time",
         "create_time",
         "creator",
         "deleted",
         "dimension",
-        "fkdw",
-        "fkqd",
-        "fkr",
-        "fkrdh",
+        "gcbh",
+        "gcdz",
+        "gcmc",
         "id",
         "identifier",
         "internal",
-        "jc experimental",
-        "jc experimental.weituo settle bill",
-        "jc_experimental",
-        "jc_experimental.weituo_settle_bill",
-        "lydm",
+        "jzjc",
+        "jzjc.acceptance slip",
+        "jzjc.acceptance_slip",
         "metric",
-        "paied",
-        "pay time",
-        "pay_time",
+        "pay type",
+        "pay_type",
         "pk",
+        "receive time",
+        "receive_time",
+        "receiver",
+        "remark",
         "reserve1",
         "reserve2",
         "reserve3",
         "reserve4",
-        "reserve5",
-        "reserve6",
         "revision",
-        "should pay",
-        "should_pay",
-        "skr",
+        "shouli status",
+        "shouli_status",
+        "sld status",
+        "sld_status",
+        "sldbh",
         "tenant id",
         "tenant_id",
         "timestamp",
         "total fee",
+        "total sysl",
         "total_fee",
+        "total_sysl",
         "update time",
         "update_time",
         "updater",
-        "weituo settle bill",
-        "weituo_settle_bill",
+        "wt org",
+        "wt_org",
         "wtbh",
-        "xmdm",
-        "ywtbh",
+        "wtr",
+        "wtr phone",
+        "wtr_phone",
+        "wtrq",
+        "xmmc",
         "乐观锁",
-        "产品代码",
-        "仍欠费金额",
-        "付款人",
-        "付款人电话",
-        "付款单位",
-        "付款时间",
-        "付款渠道",
         "创建人",
         "创建时间",
-        "委托结算单",
+        "受理人",
+        "受理单",
+        "受理单状态",
+        "受理单编号",
+        "受理单表",
+        "受理总金额（冗余）",
+        "受理时间（缴费完成时间）",
+        "受理状态",
+        "备注",
+        "委托人",
+        "委托单位",
+        "委托日期",
         "委托编号",
-        "已付",
-        "应付/本次检测费用",
-        "收款人",
+        "工程名称（冗余）",
+        "工程地址（冗余）",
+        "工程编号",
         "更新人",
-        "更新时间",
-        "本次实付",
-        "本次应付",
-        "本次违约金",
-        "检测项目代码",
+        "检测项目名称",
+        "欠费金额",
         "租户号",
-        "预委托编号",
+        "缴费方式（现金/转账/挂账等）",
+        "联系电话",
+        "试验总组数",
         "预留字段1",
         "预留字段2",
         "预留字段3",
-        "预留字段4",
-        "预留字段5",
-        "预留字段6",
-        "领域代码"
+        "预留字段4"
       ],
       "deprecated_column_count": 0,
-      "suspected_deprecated_column_count": 6
+      "suspected_deprecated_column_count": 4
     }
   ],
   "edges": [
     {
-      "from_table": "jc_experimental.weituo",
-      "to_table": "jc_experimental.weituo_clearing_bill",
-      "from_column": "lydm",
-      "to_column": "lydm",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": "sample_probe(rows=40/40; non_null=1.00/1.00; distinct=0.03/0.03; overlap=1.00)",
-      "governance_tags": [
-        "relation_type:inferred-shared-key",
-        "runtime_validated"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo",
-      "to_table": "jc_experimental.weituo_clearing_bill",
-      "from_column": "wtbh",
-      "to_column": "wtbh",
+      "from_table": "jzjc.acceptance_slip",
+      "to_table": "jzjc.gongcheng_price",
+      "from_column": "gcbh",
+      "to_column": "gcbh",
       "relation_type": "inferred-shared-key",
       "confidence": "low",
       "ranking_score": 5.0,
@@ -493,340 +622,328 @@
       ]
     },
     {
-      "from_table": "jc_experimental.weituo",
-      "to_table": "jc_experimental.weituo_clearing_bill",
-      "from_column": "xmdm",
-      "to_column": "xmdm",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo",
-      "to_table": "jc_experimental.weituo_clearing_bill",
-      "from_column": "ywtbh",
-      "to_column": "ywtbh",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 2.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo",
-      "to_table": "jc_experimental.weituo_clearing_detail",
-      "from_column": "lydm",
-      "to_column": "lydm",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": "sample_probe(rows=40/40; non_null=1.00/1.00; distinct=0.03/0.03; overlap=1.00)",
-      "governance_tags": [
-        "relation_type:inferred-shared-key",
-        "runtime_validated"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo",
-      "to_table": "jc_experimental.weituo_clearing_detail",
-      "from_column": "wtbh",
-      "to_column": "wtbh",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo",
-      "to_table": "jc_experimental.weituo_clearing_detail",
-      "from_column": "xmdm",
-      "to_column": "xmdm",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo",
-      "to_table": "jc_experimental.weituo_clearing_detail",
-      "from_column": "ywtbh",
-      "to_column": "ywtbh",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 2.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo",
-      "to_table": "jc_experimental.weituo_settle_bill",
-      "from_column": "lydm",
-      "to_column": "lydm",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": "sample_probe(rows=40/40; non_null=1.00/1.00; distinct=0.03/0.03; overlap=1.00)",
-      "governance_tags": [
-        "relation_type:inferred-shared-key",
-        "runtime_validated"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo",
-      "to_table": "jc_experimental.weituo_settle_bill",
-      "from_column": "wtbh",
-      "to_column": "wtbh",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo",
-      "to_table": "jc_experimental.weituo_settle_bill",
-      "from_column": "xmdm",
-      "to_column": "xmdm",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo",
-      "to_table": "jc_experimental.weituo_settle_bill",
-      "from_column": "ywtbh",
-      "to_column": "ywtbh",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 2.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo_clearing_bill",
-      "to_table": "jc_experimental.weituo_clearing_detail",
-      "from_column": "cpdm",
-      "to_column": "cpdm",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": "sample_probe(rows=40/40; non_null=1.00/1.00; distinct=0.10/0.03; overlap=1.00)",
-      "governance_tags": [
-        "relation_type:inferred-shared-key",
-        "runtime_validated"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo_clearing_bill",
-      "to_table": "jc_experimental.weituo_clearing_detail",
-      "from_column": "lydm",
-      "to_column": "lydm",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo_clearing_bill",
-      "to_table": "jc_experimental.weituo_clearing_detail",
-      "from_column": "wtbh",
-      "to_column": "wtbh",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo_clearing_bill",
-      "to_table": "jc_experimental.weituo_clearing_detail",
-      "from_column": "xmdm",
-      "to_column": "xmdm",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo_clearing_bill",
-      "to_table": "jc_experimental.weituo_clearing_detail",
-      "from_column": "ywtbh",
-      "to_column": "ywtbh",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 2.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo_clearing_bill",
-      "to_table": "jc_experimental.weituo_settle_bill",
-      "from_column": "lydm",
-      "to_column": "lydm",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo_clearing_bill",
-      "to_table": "jc_experimental.weituo_settle_bill",
-      "from_column": "wtbh",
-      "to_column": "wtbh",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo_clearing_bill",
-      "to_table": "jc_experimental.weituo_settle_bill",
-      "from_column": "xmdm",
-      "to_column": "xmdm",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo_clearing_bill",
-      "to_table": "jc_experimental.weituo_settle_bill",
-      "from_column": "ywtbh",
-      "to_column": "ywtbh",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 2.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo_clearing_bill",
-      "to_table": "jc_experimental.weituo_settle_bill",
-      "from_column": "cpdm",
-      "to_column": "cpdm",
+      "from_table": "jzjc.acceptance_slip",
+      "to_table": "jzjc.weituo",
+      "from_column": "gcbh",
+      "to_column": "gcbh",
       "relation_type": "inferred-shared-key",
       "confidence": "low",
       "ranking_score": 0.0,
-      "validation_summary": "sample_probe(rows=40/40; non_null=1.00/0.28; distinct=0.10/0.18; overlap=1.00)",
+      "validation_summary": "sample_probe(rows=0/2; non_null=0.00/1.00; distinct=0.00/0.50; overlap=0.00)",
       "governance_tags": [
         "relation_type:inferred-shared-key",
         "runtime_validated"
       ]
     },
     {
-      "from_table": "jc_experimental.weituo_clearing_detail",
-      "to_table": "jc_experimental.weituo_settle_bill",
-      "from_column": "lydm",
-      "to_column": "lydm",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo_clearing_detail",
-      "to_table": "jc_experimental.weituo_settle_bill",
+      "from_table": "jzjc.acceptance_slip",
+      "to_table": "jzjc.weituo",
       "from_column": "wtbh",
       "to_column": "wtbh",
       "relation_type": "inferred-shared-key",
       "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo_clearing_detail",
-      "to_table": "jc_experimental.weituo_settle_bill",
-      "from_column": "xmdm",
-      "to_column": "xmdm",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 5.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo_clearing_detail",
-      "to_table": "jc_experimental.weituo_settle_bill",
-      "from_column": "ywtbh",
-      "to_column": "ywtbh",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
-      "ranking_score": 2.0,
-      "validation_summary": null,
-      "governance_tags": [
-        "relation_type:inferred-shared-key"
-      ]
-    },
-    {
-      "from_table": "jc_experimental.weituo_clearing_detail",
-      "to_table": "jc_experimental.weituo_settle_bill",
-      "from_column": "cpdm",
-      "to_column": "cpdm",
-      "relation_type": "inferred-shared-key",
-      "confidence": "low",
       "ranking_score": 0.0,
-      "validation_summary": "sample_probe(rows=40/40; non_null=1.00/0.28; distinct=0.03/0.18; overlap=0.00)",
+      "validation_summary": "sample_probe(rows=0/2; non_null=0.00/0.50; distinct=0.00/1.00; overlap=0.00)",
       "governance_tags": [
         "relation_type:inferred-shared-key",
         "runtime_validated"
+      ]
+    },
+    {
+      "from_table": "jzjc.gongcheng_price",
+      "to_table": "jzjc.hetong_account",
+      "from_column": "htbh",
+      "to_column": "htbh",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 5.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.gongcheng_price",
+      "to_table": "jzjc.hetong_price",
+      "from_column": "leaf_id",
+      "to_column": "leaf_id",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 4.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.gongcheng_price",
+      "to_table": "jzjc.hetong_price",
+      "from_column": "param_out_id",
+      "to_column": "param_out_id",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 4.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.gongcheng_price",
+      "to_table": "jzjc.hetong_price",
+      "from_column": "sample_out_id",
+      "to_column": "sample_out_id",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 4.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.gongcheng_price",
+      "to_table": "jzjc.hetong_price",
+      "from_column": "htbh",
+      "to_column": "htbh",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 0.0,
+      "validation_summary": "sample_probe(rows=0/0; non_null=0.00/0.00; distinct=0.00/0.00; overlap=0.00)",
+      "governance_tags": [
+        "relation_type:inferred-shared-key",
+        "runtime_validated"
+      ]
+    },
+    {
+      "from_table": "jzjc.gongcheng_price",
+      "to_table": "jzjc.jiance_price",
+      "from_column": "leaf_id",
+      "to_column": "leaf_id",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 4.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.gongcheng_price",
+      "to_table": "jzjc.jiance_price",
+      "from_column": "param_out_id",
+      "to_column": "param_out_id",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 4.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.gongcheng_price",
+      "to_table": "jzjc.jiance_price",
+      "from_column": "sample_out_id",
+      "to_column": "sample_out_id",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 4.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.gongcheng_price",
+      "to_table": "jzjc.weituo",
+      "from_column": "leaf_id",
+      "to_column": "leaf_id",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 4.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.gongcheng_price",
+      "to_table": "jzjc.weituo",
+      "from_column": "sample_out_id",
+      "to_column": "sample_out_id",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 4.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.gongcheng_price",
+      "to_table": "jzjc.weituo",
+      "from_column": "gcbh",
+      "to_column": "gcbh",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 0.0,
+      "validation_summary": "sample_probe(rows=0/2; non_null=0.00/1.00; distinct=0.00/0.50; overlap=0.00)",
+      "governance_tags": [
+        "relation_type:inferred-shared-key",
+        "runtime_validated"
+      ]
+    },
+    {
+      "from_table": "jzjc.gongcheng_price",
+      "to_table": "jzjc.weituo",
+      "from_column": "htbh",
+      "to_column": "htbh",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 0.0,
+      "validation_summary": "sample_probe(rows=0/2; non_null=0.00/0.00; distinct=0.00/0.00; overlap=0.00)",
+      "governance_tags": [
+        "relation_type:inferred-shared-key",
+        "runtime_validated"
+      ]
+    },
+    {
+      "from_table": "jzjc.hetong_account",
+      "to_table": "jzjc.hetong_price",
+      "from_column": "htbh",
+      "to_column": "htbh",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 5.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.hetong_account",
+      "to_table": "jzjc.weituo",
+      "from_column": "htbh",
+      "to_column": "htbh",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 5.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.hetong_price",
+      "to_table": "jzjc.jiance_price",
+      "from_column": "leaf_id",
+      "to_column": "leaf_id",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 4.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.hetong_price",
+      "to_table": "jzjc.jiance_price",
+      "from_column": "param_out_id",
+      "to_column": "param_out_id",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 4.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.hetong_price",
+      "to_table": "jzjc.jiance_price",
+      "from_column": "sample_out_id",
+      "to_column": "sample_out_id",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 4.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.hetong_price",
+      "to_table": "jzjc.weituo",
+      "from_column": "leaf_id",
+      "to_column": "leaf_id",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 4.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.hetong_price",
+      "to_table": "jzjc.weituo",
+      "from_column": "sample_out_id",
+      "to_column": "sample_out_id",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 4.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.hetong_price",
+      "to_table": "jzjc.weituo",
+      "from_column": "htbh",
+      "to_column": "htbh",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 0.0,
+      "validation_summary": "sample_probe(rows=0/2; non_null=0.00/0.00; distinct=0.00/0.00; overlap=0.00)",
+      "governance_tags": [
+        "relation_type:inferred-shared-key",
+        "runtime_validated"
+      ]
+    },
+    {
+      "from_table": "jzjc.jiance_price",
+      "to_table": "jzjc.weituo",
+      "from_column": "leaf_id",
+      "to_column": "leaf_id",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 4.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
+      ]
+    },
+    {
+      "from_table": "jzjc.jiance_price",
+      "to_table": "jzjc.weituo",
+      "from_column": "sample_out_id",
+      "to_column": "sample_out_id",
+      "relation_type": "inferred-shared-key",
+      "confidence": "low",
+      "ranking_score": 4.0,
+      "validation_summary": null,
+      "governance_tags": [
+        "relation_type:inferred-shared-key"
       ]
     }
   ],
   "column_quality": [
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
       "column": "id",
       "quality_score": 9.0,
       "quality_tier": "high",
@@ -845,8 +962,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
       "column": "tenant_id",
       "quality_score": 9.0,
       "quality_tier": "high",
@@ -865,9 +982,47 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
-      "column": "lydm",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
+      "column": "price_unique_id",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "nullable"
+      ]
+    },
+    {
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
+      "column": "leaf_id",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "nullable"
+      ]
+    },
+    {
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
+      "column": "leaf_name",
       "quality_score": 7.0,
       "quality_tier": "high",
       "deprecated_status": "active",
@@ -884,9 +1039,28 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
-      "column": "ywtbh",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
+      "column": "sample_out_id",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "nullable"
+      ]
+    },
+    {
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
+      "column": "sample_name",
       "quality_score": 7.0,
       "quality_tier": "high",
       "deprecated_status": "active",
@@ -903,9 +1077,28 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
-      "column": "wtbh",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
+      "column": "param_out_id",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "nullable"
+      ]
+    },
+    {
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
+      "column": "param_name",
       "quality_score": 7.0,
       "quality_tier": "high",
       "deprecated_status": "active",
@@ -922,9 +1115,9 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
-      "column": "cpdm",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
+      "column": "unit_name",
       "quality_score": 7.0,
       "quality_tier": "high",
       "deprecated_status": "active",
@@ -941,66 +1134,9 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
-      "column": "xmdm",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
-      "column": "jjlx",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
-      "column": "csdm",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
-      "column": "dbdj",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
+      "column": "price",
       "quality_score": 7.0,
       "quality_tier": "high",
       "deprecated_status": "active",
@@ -1017,66 +1153,48 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
-      "column": "bzdj",
-      "quality_score": 7.0,
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
+      "column": "version",
+      "quality_score": 8.0,
       "quality_tier": "high",
       "deprecated_status": "active",
       "deprecated_reason": null,
       "has_description": true,
-      "has_default": false,
+      "has_default": true,
       "nullable": true,
       "is_primary_key": false,
-      "semantic_role": "metric",
+      "semantic_role": "dimension",
       "signals": [
         "has_description",
-        "semantic_role:metric",
-        "nullable"
+        "semantic_role:dimension",
+        "nullable",
+        "has_default"
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
-      "column": "zk",
-      "quality_score": 7.0,
-      "quality_tier": "high",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
+      "column": "is_enable",
+      "quality_score": 4.0,
+      "quality_tier": "medium",
       "deprecated_status": "active",
       "deprecated_reason": null,
-      "has_description": true,
+      "has_description": false,
       "has_default": false,
       "nullable": true,
       "is_primary_key": false,
-      "semantic_role": "metric",
+      "semantic_role": "dimension",
       "signals": [
-        "has_description",
-        "semantic_role:metric",
+        "missing_description",
+        "semantic_role:dimension",
         "nullable"
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
-      "column": "zh_tydj",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "metric",
-      "signals": [
-        "has_description",
-        "semantic_role:metric",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
-      "column": "sl",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
+      "column": "remark",
       "quality_score": 7.0,
       "quality_tier": "high",
       "deprecated_status": "active",
@@ -1093,27 +1211,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
-      "column": "jg",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "metric",
-      "signals": [
-        "has_description",
-        "semantic_role:metric",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
       "column": "revision",
       "quality_score": 9.0,
       "quality_tier": "high",
@@ -1132,8 +1231,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
       "column": "creator",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1151,8 +1250,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
       "column": "create_time",
       "quality_score": 9.0,
       "quality_tier": "high",
@@ -1171,8 +1270,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
       "column": "updater",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1190,27 +1289,27 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
       "column": "update_time",
-      "quality_score": 7.0,
-      "quality_tier": "high",
+      "quality_score": 4.0,
+      "quality_tier": "medium",
       "deprecated_status": "active",
       "deprecated_reason": null,
-      "has_description": true,
+      "has_description": false,
       "has_default": false,
       "nullable": true,
       "is_primary_key": false,
       "semantic_role": "internal",
       "signals": [
-        "has_description",
+        "missing_description",
         "semantic_role:internal",
         "nullable"
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
       "column": "deleted",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -1228,8 +1327,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
       "column": "reserve1",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -1248,8 +1347,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
       "column": "reserve2",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -1268,8 +1367,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
       "column": "reserve3",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -1288,8 +1387,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
       "column": "reserve4",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -1308,8 +1407,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
       "column": "reserve5",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -1328,8 +1427,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
       "column": "reserve6",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -1348,8 +1447,1483 @@
       ]
     },
     {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "id",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": false,
+      "is_primary_key": true,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "not_null",
+        "primary_key"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "tenant_id",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "not_null",
+        "has_default"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "htbh",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "htmc",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "leaf_id",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "leaf_name",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "sample_out_id",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "sample_name",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "param_out_id",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "param_name",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "unit_name",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "std_price",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "metric",
+      "signals": [
+        "has_description",
+        "semantic_role:metric",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "price",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "metric",
+      "signals": [
+        "has_description",
+        "semantic_role:metric",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "version",
+      "quality_score": 8.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable",
+        "has_default"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "is_enable",
+      "quality_score": 4.0,
+      "quality_tier": "medium",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": false,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "missing_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "remark",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "revision",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "not_null",
+        "has_default"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "creator",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "create_time",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "internal",
+      "signals": [
+        "has_description",
+        "semantic_role:internal",
+        "not_null",
+        "has_default"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "updater",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "update_time",
+      "quality_score": 4.0,
+      "quality_tier": "medium",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": false,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "internal",
+      "signals": [
+        "missing_description",
+        "semantic_role:internal",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "deleted",
+      "quality_score": 5.0,
+      "quality_tier": "medium",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": false,
+      "has_default": false,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "internal",
+      "signals": [
+        "missing_description",
+        "semantic_role:internal",
+        "not_null"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "reserve1",
+      "quality_score": 5.0,
+      "quality_tier": "medium",
+      "deprecated_status": "suspected",
+      "deprecated_reason": "name_pattern",
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable",
+        "suspected_deprecated"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "reserve2",
+      "quality_score": 5.0,
+      "quality_tier": "medium",
+      "deprecated_status": "suspected",
+      "deprecated_reason": "name_pattern",
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable",
+        "suspected_deprecated"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "reserve3",
+      "quality_score": 5.0,
+      "quality_tier": "medium",
+      "deprecated_status": "suspected",
+      "deprecated_reason": "name_pattern",
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable",
+        "suspected_deprecated"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "column": "reserve4",
+      "quality_score": 5.0,
+      "quality_tier": "medium",
+      "deprecated_status": "suspected",
+      "deprecated_reason": "name_pattern",
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable",
+        "suspected_deprecated"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "id",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": false,
+      "is_primary_key": true,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "not_null",
+        "primary_key"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "tenant_id",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "not_null",
+        "has_default"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "gcbh",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "gcmc",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "htbh",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "leaf_id",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "leaf_name",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "sample_out_id",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "sample_name",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "param_out_id",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "param_name",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "unit_name",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "std_price",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "metric",
+      "signals": [
+        "has_description",
+        "semantic_role:metric",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "price",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "metric",
+      "signals": [
+        "has_description",
+        "semantic_role:metric",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "version",
+      "quality_score": 8.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable",
+        "has_default"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "is_enable",
+      "quality_score": 4.0,
+      "quality_tier": "medium",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": false,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "missing_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "remark",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "revision",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "not_null",
+        "has_default"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "creator",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "create_time",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "internal",
+      "signals": [
+        "has_description",
+        "semantic_role:internal",
+        "not_null",
+        "has_default"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "updater",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "update_time",
+      "quality_score": 4.0,
+      "quality_tier": "medium",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": false,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "internal",
+      "signals": [
+        "missing_description",
+        "semantic_role:internal",
+        "nullable"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "deleted",
+      "quality_score": 5.0,
+      "quality_tier": "medium",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": false,
+      "has_default": false,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "internal",
+      "signals": [
+        "missing_description",
+        "semantic_role:internal",
+        "not_null"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "reserve1",
+      "quality_score": 5.0,
+      "quality_tier": "medium",
+      "deprecated_status": "suspected",
+      "deprecated_reason": "name_pattern",
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable",
+        "suspected_deprecated"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "reserve2",
+      "quality_score": 5.0,
+      "quality_tier": "medium",
+      "deprecated_status": "suspected",
+      "deprecated_reason": "name_pattern",
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable",
+        "suspected_deprecated"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "reserve3",
+      "quality_score": 5.0,
+      "quality_tier": "medium",
+      "deprecated_status": "suspected",
+      "deprecated_reason": "name_pattern",
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable",
+        "suspected_deprecated"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "column": "reserve4",
+      "quality_score": 5.0,
+      "quality_tier": "medium",
+      "deprecated_status": "suspected",
+      "deprecated_reason": "name_pattern",
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable",
+        "suspected_deprecated"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "id",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": false,
+      "is_primary_key": true,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "not_null",
+        "primary_key"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "tenant_id",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "not_null",
+        "has_default"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "htbh",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "htmc",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "ht_amount",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "metric",
+      "signals": [
+        "has_description",
+        "semantic_role:metric",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "can_credit",
+      "quality_score": 4.0,
+      "quality_tier": "medium",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": false,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "missing_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "credit_limit",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "metric",
+      "signals": [
+        "has_description",
+        "semantic_role:metric",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "balance",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "metric",
+      "signals": [
+        "has_description",
+        "semantic_role:metric",
+        "not_null",
+        "has_default"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "total_recharge",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "metric",
+      "signals": [
+        "has_description",
+        "semantic_role:metric",
+        "not_null",
+        "has_default"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "credit_amount",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "metric",
+      "signals": [
+        "has_description",
+        "semantic_role:metric",
+        "not_null",
+        "has_default"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "paid_amount",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "metric",
+      "signals": [
+        "has_description",
+        "semantic_role:metric",
+        "not_null",
+        "has_default"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "frozen_amount",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "metric",
+      "signals": [
+        "has_description",
+        "semantic_role:metric",
+        "not_null",
+        "has_default"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "remark",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "revision",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "not_null",
+        "has_default"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "creator",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "create_time",
+      "quality_score": 9.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "internal",
+      "signals": [
+        "has_description",
+        "semantic_role:internal",
+        "not_null",
+        "has_default"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "updater",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "update_time",
+      "quality_score": 4.0,
+      "quality_tier": "medium",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": false,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "internal",
+      "signals": [
+        "missing_description",
+        "semantic_role:internal",
+        "nullable"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "deleted",
+      "quality_score": 5.0,
+      "quality_tier": "medium",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": false,
+      "has_default": false,
+      "nullable": false,
+      "is_primary_key": false,
+      "semantic_role": "internal",
+      "signals": [
+        "missing_description",
+        "semantic_role:internal",
+        "not_null"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "reserve1",
+      "quality_score": 5.0,
+      "quality_tier": "medium",
+      "deprecated_status": "suspected",
+      "deprecated_reason": "name_pattern",
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable",
+        "suspected_deprecated"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "reserve2",
+      "quality_score": 5.0,
+      "quality_tier": "medium",
+      "deprecated_status": "suspected",
+      "deprecated_reason": "name_pattern",
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable",
+        "suspected_deprecated"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "reserve3",
+      "quality_score": 5.0,
+      "quality_tier": "medium",
+      "deprecated_status": "suspected",
+      "deprecated_reason": "name_pattern",
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable",
+        "suspected_deprecated"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "column": "reserve4",
+      "quality_score": 5.0,
+      "quality_tier": "medium",
+      "deprecated_status": "suspected",
+      "deprecated_reason": "name_pattern",
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable",
+        "suspected_deprecated"
+      ]
+    },
+    {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "id",
       "quality_score": 9.0,
       "quality_tier": "high",
@@ -1369,7 +2943,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "tenant_id",
       "quality_score": 9.0,
       "quality_tier": "high",
@@ -1389,8 +2963,27 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "lydm",
+      "qualified_table": "jzjc.weituo",
+      "column": "leaf_id",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "nullable"
+      ]
+    },
+    {
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
+      "column": "leaf_name",
       "quality_score": 7.0,
       "quality_tier": "high",
       "deprecated_status": "active",
@@ -1408,8 +3001,27 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "xmdm",
+      "qualified_table": "jzjc.weituo",
+      "column": "sample_out_id",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "identifier",
+      "signals": [
+        "has_description",
+        "semantic_role:identifier",
+        "nullable"
+      ]
+    },
+    {
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
+      "column": "sample_name",
       "quality_score": 7.0,
       "quality_tier": "high",
       "deprecated_status": "active",
@@ -1427,64 +3039,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "xmmc",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "baywtbh",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "ywtbh",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "wtbh",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1503,27 +3058,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "htbh_ls",
-      "quality_score": 5.0,
-      "quality_tier": "medium",
-      "deprecated_status": "suspected",
-      "deprecated_reason": "description_or_name_marker",
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable",
-        "suspected_deprecated"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "htbh",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1542,27 +3077,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "gcbh_ls",
-      "quality_score": 5.0,
-      "quality_tier": "medium",
-      "deprecated_status": "suspected",
-      "deprecated_reason": "description_or_name_marker",
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable",
-        "suspected_deprecated"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "gcbh",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1581,7 +3096,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "gcmc",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1600,7 +3115,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "gcdz",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1619,7 +3134,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "charger",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1638,7 +3153,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "charger_phone",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1657,7 +3172,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "wtr",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1676,7 +3191,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "wtr_phone",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1695,7 +3210,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "wt_org",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1714,7 +3229,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "jiandu_org",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1733,7 +3248,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "songyang_org",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1752,7 +3267,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "songyangren",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1771,7 +3286,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "jianzheng_org",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1790,7 +3305,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "jianzhengren",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1809,7 +3324,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "jz_no",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1828,7 +3343,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "quyang_org",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1847,7 +3362,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "quyangren",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1866,7 +3381,102 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
+      "column": "kancha_org",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
+      "column": "sheji_org",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
+      "column": "jianshe_org",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
+      "column": "shigong_org",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
+      "column": "jianli_org",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "wt_type",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1885,26 +3495,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "is_repeat",
-      "quality_score": 4.0,
-      "quality_tier": "medium",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": false,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "missing_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "wt_status",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1923,7 +3514,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "total_fee",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1942,7 +3533,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "fee_status",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -1961,102 +3552,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "should_pay",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "metric",
-      "signals": [
-        "has_description",
-        "semantic_role:metric",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "paied",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "metric",
-      "signals": [
-        "has_description",
-        "semantic_role:metric",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "origin_fee",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "metric",
-      "signals": [
-        "has_description",
-        "semantic_role:metric",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "apply_fee",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "metric",
-      "signals": [
-        "has_description",
-        "semantic_role:metric",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "zhzk",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "is_enable",
       "quality_score": 4.0,
       "quality_tier": "medium",
@@ -2075,7 +3571,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "enable_reason",
       "quality_score": 3.0,
       "quality_tier": "low",
@@ -2095,86 +3591,8 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "is_prt_wtd",
-      "quality_score": 4.0,
-      "quality_tier": "medium",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": false,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "missing_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "is_prt_sld",
-      "quality_score": 4.0,
-      "quality_tier": "medium",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": false,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "missing_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "sld_prt_count",
-      "quality_score": 8.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": true,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "metric",
-      "signals": [
-        "has_description",
-        "semantic_role:metric",
-        "nullable",
-        "has_default"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "sld_prt_count_self",
-      "quality_score": 8.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": true,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "metric",
-      "signals": [
-        "has_description",
-        "semantic_role:metric",
-        "nullable",
-        "has_default"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "qyrq",
+      "qualified_table": "jzjc.weituo",
+      "column": "wtrq",
       "quality_score": 7.0,
       "quality_tier": "high",
       "deprecated_status": "active",
@@ -2192,433 +3610,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "reject_reason",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "audit_image_url",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "process_instance_id",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "identifier",
-      "signals": [
-        "has_description",
-        "semantic_role:identifier",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "remark",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "revision",
-      "quality_score": 9.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": true,
-      "nullable": false,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "not_null",
-        "has_default"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "creator",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "create_time",
-      "quality_score": 9.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": true,
-      "nullable": false,
-      "is_primary_key": false,
-      "semantic_role": "internal",
-      "signals": [
-        "has_description",
-        "semantic_role:internal",
-        "not_null",
-        "has_default"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "updater",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "update_time",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "internal",
-      "signals": [
-        "has_description",
-        "semantic_role:internal",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "deleted",
-      "quality_score": 5.0,
-      "quality_tier": "medium",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": false,
-      "has_default": false,
-      "nullable": false,
-      "is_primary_key": false,
-      "semantic_role": "internal",
-      "signals": [
-        "missing_description",
-        "semantic_role:internal",
-        "not_null"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "reserve1",
-      "quality_score": 5.0,
-      "quality_tier": "medium",
-      "deprecated_status": "suspected",
-      "deprecated_reason": "name_pattern",
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable",
-        "suspected_deprecated"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "reserve2",
-      "quality_score": 5.0,
-      "quality_tier": "medium",
-      "deprecated_status": "suspected",
-      "deprecated_reason": "name_pattern",
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable",
-        "suspected_deprecated"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "reserve3",
-      "quality_score": 5.0,
-      "quality_tier": "medium",
-      "deprecated_status": "suspected",
-      "deprecated_reason": "name_pattern",
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable",
-        "suspected_deprecated"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "reserve4",
-      "quality_score": 5.0,
-      "quality_tier": "medium",
-      "deprecated_status": "suspected",
-      "deprecated_reason": "name_pattern",
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable",
-        "suspected_deprecated"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "reserve5",
-      "quality_score": 5.0,
-      "quality_tier": "medium",
-      "deprecated_status": "suspected",
-      "deprecated_reason": "name_pattern",
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable",
-        "suspected_deprecated"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "reserve6",
-      "quality_score": 5.0,
-      "quality_tier": "medium",
-      "deprecated_status": "suspected",
-      "deprecated_reason": "name_pattern",
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable",
-        "suspected_deprecated"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "tj_status",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "kancha_org",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "sheji_org",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "jianshe_org",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "shigong_org",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "jianli_org",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "wtsj",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -2637,7 +3629,64 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
+      "column": "receive_time",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "timestamp",
+      "signals": [
+        "has_description",
+        "semantic_role:timestamp",
+        "nullable"
+      ]
+    },
+    {
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
+      "column": "reject_reason",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
+      "column": "audit_image_url",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "jiance_org_phone",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -2656,7 +3705,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "jiance_org_address",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -2675,8 +3724,8 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "supervision_raw_data",
+      "qualified_table": "jzjc.weituo",
+      "column": "remark",
       "quality_score": 7.0,
       "quality_tier": "high",
       "deprecated_status": "active",
@@ -2694,275 +3743,7 @@
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "fx_recid",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "fx_rec_info",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "is_repeat_cn",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
-      "column": "jczq",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
-      "column": "id",
-      "quality_score": 9.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": false,
-      "is_primary_key": true,
-      "semantic_role": "identifier",
-      "signals": [
-        "has_description",
-        "semantic_role:identifier",
-        "not_null",
-        "primary_key"
-      ]
-    },
-    {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
-      "column": "tenant_id",
-      "quality_score": 9.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": true,
-      "nullable": false,
-      "is_primary_key": false,
-      "semantic_role": "identifier",
-      "signals": [
-        "has_description",
-        "semantic_role:identifier",
-        "not_null",
-        "has_default"
-      ]
-    },
-    {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
-      "column": "lydm",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
-      "column": "ywtbh",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
-      "column": "wtbh",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
-      "column": "cpdm",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
-      "column": "xmdm",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
-      "column": "all_jjlx",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
-      "column": "total_fee",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "metric",
-      "signals": [
-        "has_description",
-        "semantic_role:metric",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
-      "column": "weituo_time",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "timestamp",
-      "signals": [
-        "has_description",
-        "semantic_role:timestamp",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
+      "qualified_table": "jzjc.weituo",
       "column": "revision",
       "quality_score": 9.0,
       "quality_tier": "high",
@@ -2981,8 +3762,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "creator",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -3000,8 +3781,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "create_time",
       "quality_score": 9.0,
       "quality_tier": "high",
@@ -3020,8 +3801,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "updater",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -3039,27 +3820,27 @@
       ]
     },
     {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "update_time",
-      "quality_score": 7.0,
-      "quality_tier": "high",
+      "quality_score": 4.0,
+      "quality_tier": "medium",
       "deprecated_status": "active",
       "deprecated_reason": null,
-      "has_description": true,
+      "has_description": false,
       "has_default": false,
       "nullable": true,
       "is_primary_key": false,
       "semantic_role": "internal",
       "signals": [
-        "has_description",
+        "missing_description",
         "semantic_role:internal",
         "nullable"
       ]
     },
     {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "deleted",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -3077,8 +3858,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "reserve1",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -3097,8 +3878,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "reserve2",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -3117,8 +3898,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "reserve3",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -3137,8 +3918,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "reserve4",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -3157,8 +3938,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "reserve5",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -3177,8 +3958,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
+      "table": "weituo",
+      "qualified_table": "jzjc.weituo",
       "column": "reserve6",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -3197,27 +3978,8 @@
       ]
     },
     {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
-      "column": "status",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
       "column": "id",
       "quality_score": 9.0,
       "quality_tier": "high",
@@ -3236,8 +3998,8 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
       "column": "tenant_id",
       "quality_score": 9.0,
       "quality_tier": "high",
@@ -3256,46 +4018,8 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "lydm",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "ywtbh",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
       "column": "wtbh",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -3313,9 +4037,9 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "cpdm",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "sldbh",
       "quality_score": 7.0,
       "quality_tier": "high",
       "deprecated_status": "active",
@@ -3332,9 +4056,9 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "xmdm",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "gcbh",
       "quality_score": 7.0,
       "quality_tier": "high",
       "deprecated_status": "active",
@@ -3351,8 +4075,198 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "gcmc",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "gcdz",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "wt_org",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "wtr",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "wtr_phone",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "xmmc",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "wtrq",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "timestamp",
+      "signals": [
+        "has_description",
+        "semantic_role:timestamp",
+        "nullable"
+      ]
+    },
+    {
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "receive_time",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "timestamp",
+      "signals": [
+        "has_description",
+        "semantic_role:timestamp",
+        "nullable"
+      ]
+    },
+    {
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "receiver",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "pay_type",
+      "quality_score": 7.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": false,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "dimension",
+      "signals": [
+        "has_description",
+        "semantic_role:dimension",
+        "nullable"
+      ]
+    },
+    {
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
       "column": "total_fee",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -3370,123 +4284,29 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "paied",
-      "quality_score": 7.0,
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "arrears_amount",
+      "quality_score": 8.0,
       "quality_tier": "high",
       "deprecated_status": "active",
       "deprecated_reason": null,
       "has_description": true,
-      "has_default": false,
+      "has_default": true,
       "nullable": true,
       "is_primary_key": false,
       "semantic_role": "metric",
       "signals": [
         "has_description",
         "semantic_role:metric",
-        "nullable"
+        "nullable",
+        "has_default"
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "should_pay",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "metric",
-      "signals": [
-        "has_description",
-        "semantic_role:metric",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "bcwyj",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "metric",
-      "signals": [
-        "has_description",
-        "semantic_role:metric",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "bcsf",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "metric",
-      "signals": [
-        "has_description",
-        "semantic_role:metric",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "arrears",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "metric",
-      "signals": [
-        "has_description",
-        "semantic_role:metric",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "pay_time",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "timestamp",
-      "signals": [
-        "has_description",
-        "semantic_role:timestamp",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "skr",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "sld_status",
       "quality_score": 7.0,
       "quality_tier": "high",
       "deprecated_status": "active",
@@ -3503,9 +4323,9 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "fkdw",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "shouli_status",
       "quality_score": 7.0,
       "quality_tier": "high",
       "deprecated_status": "active",
@@ -3522,9 +4342,29 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "fkr",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "total_sysl",
+      "quality_score": 8.0,
+      "quality_tier": "high",
+      "deprecated_status": "active",
+      "deprecated_reason": null,
+      "has_description": true,
+      "has_default": true,
+      "nullable": true,
+      "is_primary_key": false,
+      "semantic_role": "metric",
+      "signals": [
+        "has_description",
+        "semantic_role:metric",
+        "nullable",
+        "has_default"
+      ]
+    },
+    {
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "column": "remark",
       "quality_score": 7.0,
       "quality_tier": "high",
       "deprecated_status": "active",
@@ -3541,46 +4381,8 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "fkrdh",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "fkqd",
-      "quality_score": 7.0,
-      "quality_tier": "high",
-      "deprecated_status": "active",
-      "deprecated_reason": null,
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable"
-      ]
-    },
-    {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
       "column": "revision",
       "quality_score": 9.0,
       "quality_tier": "high",
@@ -3599,8 +4401,8 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
       "column": "creator",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -3618,8 +4420,8 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
       "column": "create_time",
       "quality_score": 9.0,
       "quality_tier": "high",
@@ -3638,8 +4440,8 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
       "column": "updater",
       "quality_score": 7.0,
       "quality_tier": "high",
@@ -3657,27 +4459,27 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
       "column": "update_time",
-      "quality_score": 7.0,
-      "quality_tier": "high",
+      "quality_score": 4.0,
+      "quality_tier": "medium",
       "deprecated_status": "active",
       "deprecated_reason": null,
-      "has_description": true,
+      "has_description": false,
       "has_default": false,
       "nullable": true,
       "is_primary_key": false,
       "semantic_role": "internal",
       "signals": [
-        "has_description",
+        "missing_description",
         "semantic_role:internal",
         "nullable"
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
       "column": "deleted",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -3695,8 +4497,8 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
       "column": "reserve1",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -3715,8 +4517,8 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
       "column": "reserve2",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -3735,8 +4537,8 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
       "column": "reserve3",
       "quality_score": 5.0,
       "quality_tier": "medium",
@@ -3755,49 +4557,9 @@
       ]
     },
     {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
       "column": "reserve4",
-      "quality_score": 5.0,
-      "quality_tier": "medium",
-      "deprecated_status": "suspected",
-      "deprecated_reason": "name_pattern",
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable",
-        "suspected_deprecated"
-      ]
-    },
-    {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "reserve5",
-      "quality_score": 5.0,
-      "quality_tier": "medium",
-      "deprecated_status": "suspected",
-      "deprecated_reason": "name_pattern",
-      "has_description": true,
-      "has_default": false,
-      "nullable": true,
-      "is_primary_key": false,
-      "semantic_role": "dimension",
-      "signals": [
-        "has_description",
-        "semantic_role:dimension",
-        "nullable",
-        "suspected_deprecated"
-      ]
-    },
-    {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "column": "reserve6",
       "quality_score": 5.0,
       "quality_tier": "medium",
       "deprecated_status": "suspected",
@@ -3817,56 +4579,111 @@
   ],
   "join_coverage": [
     {
-      "table": "weituo_clearing_detail",
-      "qualified_table": "jc_experimental.weituo_clearing_detail",
-      "relation_count": 14,
-      "join_candidate_count": 8,
-      "covered_join_candidate_count": 5,
-      "coverage_ratio": 0.62,
+      "table": "jiance_price",
+      "qualified_table": "jzjc.jiance_price",
+      "relation_count": 8,
+      "join_candidate_count": 10,
+      "covered_join_candidate_count": 3,
+      "coverage_ratio": 0.3,
       "covered_join_columns": [
-        "cpdm",
-        "lydm",
-        "wtbh",
-        "xmdm",
-        "ywtbh"
+        "leaf_id",
+        "param_out_id",
+        "sample_out_id"
       ],
       "uncovered_join_columns": [
-        "csdm",
-        "jjlx",
-        "sl"
+        "is_enable",
+        "leaf_name",
+        "param_name",
+        "price_unique_id",
+        "sample_name",
+        "unit_name",
+        "version"
+      ]
+    },
+    {
+      "table": "hetong_price",
+      "qualified_table": "jzjc.hetong_price",
+      "relation_count": 11,
+      "join_candidate_count": 11,
+      "covered_join_candidate_count": 4,
+      "coverage_ratio": 0.36,
+      "covered_join_columns": [
+        "htbh",
+        "leaf_id",
+        "param_out_id",
+        "sample_out_id"
+      ],
+      "uncovered_join_columns": [
+        "htmc",
+        "is_enable",
+        "leaf_name",
+        "param_name",
+        "sample_name",
+        "unit_name",
+        "version"
+      ]
+    },
+    {
+      "table": "gongcheng_price",
+      "qualified_table": "jzjc.gongcheng_price",
+      "relation_count": 13,
+      "join_candidate_count": 12,
+      "covered_join_candidate_count": 5,
+      "coverage_ratio": 0.42,
+      "covered_join_columns": [
+        "gcbh",
+        "htbh",
+        "leaf_id",
+        "param_out_id",
+        "sample_out_id"
+      ],
+      "uncovered_join_columns": [
+        "gcmc",
+        "is_enable",
+        "leaf_name",
+        "param_name",
+        "sample_name",
+        "unit_name",
+        "version"
+      ]
+    },
+    {
+      "table": "hetong_account",
+      "qualified_table": "jzjc.hetong_account",
+      "relation_count": 3,
+      "join_candidate_count": 3,
+      "covered_join_candidate_count": 1,
+      "coverage_ratio": 0.33,
+      "covered_join_columns": [
+        "htbh"
+      ],
+      "uncovered_join_columns": [
+        "can_credit",
+        "htmc"
       ]
     },
     {
       "table": "weituo",
-      "qualified_table": "jc_experimental.weituo",
+      "qualified_table": "jzjc.weituo",
       "relation_count": 12,
-      "join_candidate_count": 47,
-      "covered_join_candidate_count": 4,
-      "coverage_ratio": 0.09,
+      "join_candidate_count": 35,
+      "covered_join_candidate_count": 5,
+      "coverage_ratio": 0.14,
       "covered_join_columns": [
-        "lydm",
-        "wtbh",
-        "xmdm",
-        "ywtbh"
+        "gcbh",
+        "htbh",
+        "leaf_id",
+        "sample_out_id",
+        "wtbh"
       ],
       "uncovered_join_columns": [
         "audit_image_url",
-        "baywtbh",
         "charger",
         "charger_phone",
         "fee_status",
-        "fx_rec_info",
-        "fx_recid",
-        "gcbh",
         "gcdz",
         "gcmc",
-        "htbh",
         "is_enable",
-        "is_prt_sld",
-        "is_prt_wtd",
-        "is_repeat",
-        "is_repeat_cn",
-        "jczq",
         "jiance_org_address",
         "jiance_org_phone",
         "jiandu_org",
@@ -3876,73 +4693,55 @@
         "jianzhengren",
         "jz_no",
         "kancha_org",
-        "process_instance_id",
+        "leaf_name",
         "quyang_org",
         "quyangren",
         "reject_reason",
+        "sample_name",
         "sheji_org",
         "shigong_org",
         "songyang_org",
         "songyangren",
-        "supervision_raw_data",
-        "tj_status",
         "wt_org",
         "wt_status",
         "wt_type",
         "wtr",
+        "wtr_phone"
+      ]
+    },
+    {
+      "table": "acceptance_slip",
+      "qualified_table": "jzjc.acceptance_slip",
+      "relation_count": 3,
+      "join_candidate_count": 13,
+      "covered_join_candidate_count": 2,
+      "coverage_ratio": 0.15,
+      "covered_join_columns": [
+        "gcbh",
+        "wtbh"
+      ],
+      "uncovered_join_columns": [
+        "gcdz",
+        "gcmc",
+        "pay_type",
+        "receiver",
+        "shouli_status",
+        "sld_status",
+        "sldbh",
+        "wt_org",
+        "wtr",
         "wtr_phone",
-        "xmmc",
-        "zhzk"
-      ]
-    },
-    {
-      "table": "weituo_clearing_bill",
-      "qualified_table": "jc_experimental.weituo_clearing_bill",
-      "relation_count": 14,
-      "join_candidate_count": 6,
-      "covered_join_candidate_count": 5,
-      "coverage_ratio": 0.83,
-      "covered_join_columns": [
-        "cpdm",
-        "lydm",
-        "wtbh",
-        "xmdm",
-        "ywtbh"
-      ],
-      "uncovered_join_columns": [
-        "all_jjlx"
-      ]
-    },
-    {
-      "table": "weituo_settle_bill",
-      "qualified_table": "jc_experimental.weituo_settle_bill",
-      "relation_count": 14,
-      "join_candidate_count": 10,
-      "covered_join_candidate_count": 5,
-      "coverage_ratio": 0.5,
-      "covered_join_columns": [
-        "cpdm",
-        "lydm",
-        "wtbh",
-        "xmdm",
-        "ywtbh"
-      ],
-      "uncovered_join_columns": [
-        "fkdw",
-        "fkqd",
-        "fkr",
-        "fkrdh",
-        "skr"
+        "xmmc"
       ]
     }
   ],
   "summary": {
-    "table_count": 4,
-    "column_count": 155,
-    "relation_count": 27,
+    "table_count": 6,
+    "column_count": 188,
+    "relation_count": 25,
     "deprecated_column_count": 1,
-    "suspected_deprecated_column_count": 26,
-    "avg_join_coverage_ratio": 0.51
+    "suspected_deprecated_column_count": 28,
+    "avg_join_coverage_ratio": 0.28
   },
   "diagnostics": []
 }
