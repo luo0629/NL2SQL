@@ -677,3 +677,38 @@ Removed old sample-database defaults from the live prompt and .env example, docu
 ### Next Steps
 
 - None - task complete
+
+
+## Session 21: Add deleted soft-delete query defaults
+
+**Date**: 2026-05-12
+**Task**: Add deleted soft-delete query defaults
+**Branch**: `main`
+
+### Summary
+
+Added generation-layer deleted filtering defaults, captured the deleted enum semantics and filtering contracts, and refreshed the current schema governance artifact.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0ef81d3` | (see git log) |
+| `c512756` | (see git log) |
+| `c89e714` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
