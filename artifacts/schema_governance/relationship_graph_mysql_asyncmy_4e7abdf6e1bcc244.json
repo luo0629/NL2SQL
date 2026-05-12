@@ -1,7 +1,7 @@
 {
   "version": "stage3-mvp-v1",
   "database": "jzjc",
-  "generated_at": "2026-05-12T08:26:43.725054+00:00",
+  "generated_at": "2026-05-12T10:15:02.241620+00:00",
   "scope_fingerprint": "4e7abdf6e1bcc244",
   "artifact_file": "relationship_graph_mysql_asyncmy_4e7abdf6e1bcc244.json",
   "refresh_trigger": "sync_schema_metadata",
