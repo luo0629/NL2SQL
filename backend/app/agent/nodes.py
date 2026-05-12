@@ -261,6 +261,36 @@ _BUSINESS_VALUE_TOKENS = (
     "phone",
     "type",
 )
+_COUNT_QUESTION_TERMS = (
+    "多少",
+    "几个",
+    "几条",
+    "几笔",
+    "条数",
+    "数量",
+    "总数",
+    "总量",
+    "记录数",
+    "多少个",
+    "多少条",
+    "多少笔",
+    "count",
+    "统计",
+)
+_COUNT_BUSINESS_IDENTIFIER_TOKENS = (
+    "编号",
+    "单号",
+    "编码",
+    "代码",
+    "号码",
+    "业务主键",
+    "business key",
+    "code",
+    "number",
+    "order_no",
+    "_no",
+    "_code",
+)
 
 
 def _is_low_value_semantic_term(term: str) -> bool:
@@ -277,6 +307,11 @@ def _is_low_value_semantic_term(term: str) -> bool:
 def _question_explicitly_requests_identifier(question: str) -> bool:
     normalized = f" {(question or '').lower()} "
     return any(term in normalized for term in _EXPLICIT_IDENTIFIER_TERMS)
+
+
+def _is_count_question(question: str) -> bool:
+    normalized = _normalized_text(question)
+    return any(term in normalized for term in _COUNT_QUESTION_TERMS)
 
 
 def _is_identifier_like_column_name(column_name: str) -> bool:
@@ -870,6 +905,7 @@ def _format_table_schema(
     table: SchemaTable,
     catalog: SchemaCatalog | None,
     selected_table_names: set[str] | None = None,
+    question: str = "",
 ) -> str:
     table_identity = _table_identity(table)
     lines = [f"Table {_qualified_table_name(table)}"]
@@ -884,6 +920,9 @@ def _format_table_schema(
             + ", ".join(_quote_identifier(column) for column in display_columns)
             + " (prefer these business-readable fields over internal IDs unless the user explicitly asks for IDs/codes/numbers)"
         )
+    count_guidance = _render_count_guidance(table, question)
+    if count_guidance:
+        lines.append(count_guidance)
     lines.append("Columns:")
     for column in table.columns:
         attrs = [column.data_type]
@@ -1042,7 +1081,7 @@ def schema_retriever(state: AgentState, catalog: SchemaCatalog | None = None) ->
     relations_overview = _build_table_relations_overview(selected_table_names)
     join_priority_context = _render_join_priority_context(selected_table_names, catalog)
     table_schemas = "\n\n".join(
-        _format_table_schema(table, catalog, selected_table_names)
+        _format_table_schema(table, catalog, selected_table_names, _question_text(state))
         for table in selected_tables
     )
     schema_sections = [section for section in [relations_overview, join_priority_context, table_schemas] if section]
@@ -1091,6 +1130,7 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
         "JOIN 规则：优先使用 schema_context 中 Preferred join candidates、Relations、Table Relations、hint、confidence、preferred_score 明确推荐的联表键；若存在 Avoid weaker join candidates 或 governance=suspected_endpoint/deprecated_endpoint，除非用户明确要求，否则不要使用这些联表字段。",
         "SELECT 输出默认优先选择 schema_context 标注的 Preferred SELECT output columns 或 output=business-readable 字段，例如 name/title/amount/status/time/description。",
         "WHERE 字段匹配规则：带 enum_mapping/枚举对照的字段必须使用精确匹配（= 或 IN），匹配值只能来自 schema_context 中该字段的 enum_mapping，禁止编造枚举值。",
+        "COUNT 口径规则：当用户在问数量/条数/多少/统计时，不要默认写 COUNT(`id`) 或其他纯技术主键。若 schema_context 提供 Preferred COUNT expression，优先使用该表达式；若没有更合适的业务字段，优先使用 COUNT(*) 而不是 COUNT(`id`)。",
         "软删除规则：如果相关表存在 `deleted` 字段，默认查询未删除数据时应添加 `deleted` = 0；当用户明确要求查询已删除/删除记录时使用 `deleted` = 1；当用户明确要求查询全部数据、所有记录或包含已删除数据时，可以不加 `deleted` 过滤。",
         "名称类字符串字段（如 city/城市、name/姓名/客户名、product_name/商品名、title/标题、description/描述等）默认使用 LIKE 模糊匹配，并用通配符包裹用户给出的关键词。",
         "当字段类型或业务含义不确定时，优先使用 LIKE 模糊匹配，不要直接使用等号精确匹配。",
@@ -1250,6 +1290,95 @@ def _field_semantic_overrides_for_table(table: SchemaTable) -> dict[str, dict[st
                 if isinstance(field_data, dict)
             }
     return {}
+
+
+def _count_candidate_question_score(question: str, column: Any, field_override: dict[str, Any] | None) -> float:
+    normalized = _normalized_text(question)
+    if not normalized:
+        return 0.0
+
+    tokens = [
+        _normalized_text(str(column.name)),
+        _normalized_text(str((field_override or {}).get("description") or column.description or "")),
+        *[
+            _normalized_text(str(term))
+            for term in [*(column.business_terms or []), *((field_override or {}).get("business_terms") or [])]
+            if str(term).strip()
+        ],
+    ]
+    return 18.0 if any(token and token in normalized for token in tokens) else 0.0
+
+
+def _is_business_identifier_column(column: Any, field_override: dict[str, Any] | None) -> bool:
+    combined = " ".join(
+        [
+            _normalized_text(str(column.name)),
+            _normalized_text(str((field_override or {}).get("description") or column.description or "")),
+            *[
+                _normalized_text(str(term))
+                for term in [*(column.business_terms or []), *((field_override or {}).get("business_terms") or [])]
+                if str(term).strip()
+            ],
+        ]
+    )
+    return any(token in combined for token in _COUNT_BUSINESS_IDENTIFIER_TOKENS)
+
+
+def _count_candidate_score(column: Any, question: str, field_override: dict[str, Any] | None) -> float:
+    role = _normalized_text(str((field_override or {}).get("semantic_role") or column.semantic_role or ""))
+    score = _count_candidate_question_score(question, column, field_override)
+
+    if column.is_primary_key and _normalized_text(column.name) == "id":
+        return -100.0
+    if _normalized_text(column.name) in _INTERNAL_AUDIT_COLUMNS:
+        return -80.0
+    if role in {"foreign_key", "internal", "metric", "timestamp"}:
+        score -= 24.0
+    if _is_identifier_like_column_name(column.name):
+        score -= 12.0
+    if column.nullable:
+        score -= 6.0
+    else:
+        score += 6.0
+    if role == "dimension":
+        score += 10.0
+    if _is_business_identifier_column(column, field_override):
+        score += 28.0
+    if any(token in _normalized_text(column.name) for token in _DISPLAY_NAME_TOKENS):
+        score += 2.0
+    return score
+
+
+def _preferred_count_strategy(table: SchemaTable, question: str) -> dict[str, str]:
+    field_overrides = _field_semantic_overrides_for_table(table)
+    ranked: list[tuple[float, int, Any]] = []
+    for index, column in enumerate(table.columns):
+        override = field_overrides.get(column.name.lower())
+        ranked.append((_count_candidate_score(column, question, override), index, column))
+
+    if not ranked:
+        return {
+            "expression": "COUNT(*)",
+            "reason": "表缺少可判定字段时，优先使用中性的行数统计而不是 COUNT(id)。",
+        }
+
+    best_score, _best_index, best_column = max(ranked, key=lambda item: (item[0], -item[1]))
+    if best_score >= 20.0:
+        return {
+            "expression": f"COUNT({_quote_identifier(best_column.name)})",
+            "reason": f"`{best_column.name}` 更接近业务实体口径，优先避免默认使用技术主键 `id`。",
+        }
+    return {
+        "expression": "COUNT(*)",
+        "reason": "未识别到稳定的业务计数字段时，优先使用中性的行数统计而不是 COUNT(id)。",
+    }
+
+
+def _render_count_guidance(table: SchemaTable, question: str) -> str:
+    if not _is_count_question(question) or _question_explicitly_requests_identifier(question):
+        return ""
+    strategy = _preferred_count_strategy(table, question)
+    return f"Preferred COUNT expression: {strategy['expression']} ({strategy['reason']})"
 
 
 def _fallback_order_strategy_override(table: SchemaTable) -> dict[str, str] | None:
@@ -1674,6 +1803,52 @@ def _best_alternative_join_message(sql: str, catalog: SchemaCatalog | None) -> s
     return None
 
 
+def _extract_plain_count_targets(sql: str) -> list[str]:
+    pattern = re.compile(r"count\s*\(\s*(?!distinct\b)([^)]+?)\s*\)", re.IGNORECASE)
+    return [match.group(1).strip() for match in pattern.finditer(sql)]
+
+
+def _normalize_count_target(target: str) -> str:
+    return re.sub(r"\s+", "", target.replace("`", "")).lower()
+
+
+def _is_technical_count_target(target: str) -> bool:
+    normalized = _normalize_count_target(target)
+    if normalized in {"id", "1"}:
+        return True
+    return normalized.endswith(".id") or normalized.endswith("_id") or normalized.endswith("._id")
+
+
+def _count_selection_validation_message(sql: str, state: AgentState) -> str | None:
+    question = _question_text(state)
+    if not _is_count_question(question) or _question_explicitly_requests_identifier(question):
+        return None
+
+    relevant_tables = [table for table in state.get("relevant_tables", []) if str(table).strip()]
+    if len(relevant_tables) != 1:
+        return None
+
+    catalog = state.get("schema_catalog")
+    table_lookup = _build_table_lookup(_catalog_tables(catalog))
+    table = table_lookup.get(relevant_tables[0])
+    if table is None:
+        return None
+
+    count_targets = _extract_plain_count_targets(sql)
+    technical_target = next((target for target in count_targets if _is_technical_count_target(target)), None)
+    if technical_target is None:
+        return None
+
+    strategy = _preferred_count_strategy(table, question)
+    return (
+        "检测到当前统计口径默认依赖了技术主键/技术外键："
+        f"COUNT({technical_target})。"
+        "对于当前这类数量问题，请不要盲目使用 COUNT(id)。"
+        f"请优先改为 {strategy['expression']}。"
+        f"原因：{strategy['reason']}"
+    )
+
+
 def _should_run_mysql_explain() -> bool:
     database_url = (get_settings().database_url or "").lower()
     return "mysql" in database_url or "asyncmy" in database_url or "pymysql" in database_url
@@ -1691,6 +1866,9 @@ async def sql_validator(state: AgentState, validator: SQLValidator, executor: SQ
         join_message = _best_alternative_join_message(sql, state.get("schema_catalog"))
         if join_message:
             raise DangerousSQLError(join_message)
+        count_message = _count_selection_validation_message(sql, state)
+        if count_message:
+            raise DangerousSQLError(count_message)
         if should_explain:
             await executor.explain(
                 sql,

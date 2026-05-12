@@ -81,6 +81,35 @@ class JoinRepairLLMService(LLMService):
         return self.model
 
 
+class CountRepairModel:
+    def __init__(self) -> None:
+        self.sql_prompts: list[str] = []
+
+    async def ainvoke(self, prompt: str):
+        class Response:
+            def __init__(self, content: str):
+                self.content = content
+
+        if "只返回一个 JSON 对象" in prompt:
+            return Response('{"intent":"统计订单数量","relevant_tables":["orders"]}')
+
+        if "只输出一条 SQL" in prompt:
+            self.sql_prompts.append(prompt)
+            if "检测到当前统计口径默认依赖了技术主键/技术外键" in prompt:
+                return Response("SELECT COUNT(`order_no`) AS `order_count` FROM `orders`; ")
+            return Response("SELECT COUNT(`id`) AS `order_count` FROM `orders`;")
+
+        return Response("查询执行成功，返回了订单数量结果。")
+
+
+class CountRepairLLMService(LLMService):
+    def __init__(self) -> None:
+        self.model = CountRepairModel()
+
+    def build_chat_model(self):
+        return self.model
+
+
 class StubSQLExecutor(SQLExecutor):
     async def explain(
         self,
@@ -286,6 +315,25 @@ def _make_soft_delete_catalog() -> SchemaCatalog:
                     SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, semantic_role="dimension", business_terms=["订单号"]),
                     SchemaColumn(name="deleted", data_type="TINYINT", nullable=False, description="软删除标记", semantic_role="internal"),
                     SchemaColumn(name="created_at", data_type="DATETIME", nullable=True, semantic_role="timestamp"),
+                ],
+            )
+        ],
+    ))
+
+
+def _make_count_catalog() -> SchemaCatalog:
+    return attach_business_semantics(SchemaCatalog(
+        database="test_db",
+        tables=[
+            SchemaTable(
+                name="orders",
+                description="订单表",
+                business_terms=["订单"],
+                columns=[
+                    SchemaColumn(name="id", data_type="INTEGER", nullable=False, is_primary_key=True),
+                    SchemaColumn(name="order_no", data_type="VARCHAR", nullable=False, description="业务订单编号", semantic_role="dimension", business_terms=["订单号", "单号"]),
+                    SchemaColumn(name="customer_name", data_type="VARCHAR", nullable=True, description="客户名称", semantic_role="dimension", business_terms=["客户"]),
+                    SchemaColumn(name="created_at", data_type="DATETIME", nullable=True, semantic_role="timestamp", description="下单时间"),
                 ],
             )
         ],
@@ -506,11 +554,20 @@ def test_sql_generation_prompt_guides_field_matching_rules() -> None:
     assert "名称类字符串字段" in prompt
     assert "默认使用 LIKE 模糊匹配" in prompt
     assert "字段类型或业务含义不确定时，优先使用 LIKE" in prompt
+    assert "COUNT 口径规则" in prompt
+    assert "不要默认写 COUNT(`id`)" in prompt
     assert "软删除规则：如果相关表存在 `deleted` 字段" in prompt
     assert "必须使用 MySQL 全限定表名" in prompt
     assert "`database_name`.`table_name`" in prompt
     assert "`jc_config`.`table`" not in prompt
     assert "`jc_experimental`.`table`" not in prompt
+
+
+def test_schema_context_exposes_preferred_count_expression_for_count_questions() -> None:
+    state = schema_retriever({"question": "订单数量是多少", "relevant_tables": ["orders"]}, _make_count_catalog())
+
+    assert "Preferred COUNT expression: COUNT(`order_no`)" in state["schema_context"]
+    assert "避免默认使用技术主键 `id`" in state["schema_context"]
 
 
 FIELD_EXAMPLES_CONFIG = {
@@ -807,6 +864,21 @@ def test_join_repair_detects_weaker_candidate_with_unqualified_sql_on_qualified_
     assert "`sales`.`payments`.`order_no` = `sales`.`orders`.`order_no`" in message
 
 
+def test_count_selection_validation_rejects_count_id_for_business_entity_question() -> None:
+    message = agent_nodes._count_selection_validation_message(
+        "SELECT COUNT(`id`) AS `order_count` FROM `orders`;",
+        {
+            "question": "订单数量是多少",
+            "relevant_tables": ["orders"],
+            "schema_catalog": _make_count_catalog(),
+        },
+    )
+
+    assert message is not None
+    assert "COUNT(`id`)" in message
+    assert "COUNT(`order_no`)" in message
+
+
 @pytest.mark.anyio
 async def test_agent_graph_repairs_weaker_join_before_execution(tmp_path) -> None:
     llm_service = JoinRepairLLMService()
@@ -852,6 +924,28 @@ async def test_agent_graph_runs_six_node_pipeline_and_returns_rows() -> None:
     assert state["final_answer"]
     assert "sql_generator" in state["debug_trace"]
     assert "sql_plan" not in state["debug_trace"]
+
+
+@pytest.mark.anyio
+async def test_agent_graph_repairs_count_id_before_execution() -> None:
+    llm_service = CountRepairLLMService()
+    executor = StubSQLExecutor()
+    graph = build_agent_graph(
+        StubRagService(),
+        llm_service,
+        SQLValidator(),
+        executor,
+        catalog=_make_count_catalog(),
+    )
+
+    state = await graph.ainvoke({"user_input": "订单数量是多少", "retry_count": 0, "max_retries": 3})
+
+    assert state["status"] == "ready"
+    assert state["retry_count"] == 1
+    assert len(llm_service.model.sql_prompts) == 2
+    assert "COUNT(`order_no`)" in state["generated_sql"]
+    assert "COUNT(`id`)" in state["previous_sql"]
+    assert any("COUNT(`id`)" in prompt and "COUNT(`order_no`)" in prompt for prompt in llm_service.model.sql_prompts[1:])
 
 
 @pytest.mark.anyio
