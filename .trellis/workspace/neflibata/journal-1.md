@@ -850,3 +850,37 @@ Implemented safer NL2SQL JOIN type guidance and validator retry for LEFT JOIN ri
 ### Next Steps
 
 - None - task complete
+
+
+## Session 26: Business COUNT field selection
+
+**Date**: 2026-05-13
+**Task**: Business COUNT field selection
+**Branch**: `main`
+
+### Summary
+
+Implemented and documented plain COUNT repair so business count questions prefer question-relevant business fields across single-table and multi-table SQL, reject technical count targets including COUNT(id), COUNT(table.id), COUNT(alias.id), COUNT(*_id), and COUNT(1), and fall back to COUNT(*) only when no reliable business field exists.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `42d85e9` | (see git log) |
+| `b3a77b4` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

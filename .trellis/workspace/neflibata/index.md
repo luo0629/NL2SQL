@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 25
+- **Total Sessions**: 26
 - **Last Active**: 2026-05-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~852 | Active |
+| `journal-1.md` | ~886 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 26 | 2026-05-13 | Business COUNT field selection | `42d85e9`, `b3a77b4` | `main` |
 | 25 | 2026-05-13 | Safe JOIN strategy validation | `63e3fc7` | `main` |
 | 24 | 2026-05-12 | Improve plain COUNT field selection | `9d62861`, `6d0e2c0`, `e1032e9` | `main` |
 | 23 | 2026-05-12 | Wire scoped field examples into prompts | `4bbe87f`, `98a9fd8`, `1629b48` | `main` |
