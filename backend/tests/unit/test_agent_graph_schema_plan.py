@@ -924,6 +924,55 @@ def test_count_selection_validation_rejects_count_id_for_business_entity_questio
     assert "COUNT(`order_no`)" in message
 
 
+def test_count_selection_validation_rejects_qualified_count_id_for_multi_table_question(tmp_path) -> None:
+    message = agent_nodes._count_selection_validation_message(
+        (
+            "SELECT COUNT(`orders`.`id`) AS `order_count` FROM `orders` "
+            "JOIN `payments` ON `orders`.`order_no` = `payments`.`order_no`;"
+        ),
+        {
+            "question": "订单数量是多少",
+            "relevant_tables": ["orders", "payments"],
+            "schema_catalog": _make_join_repair_catalog(tmp_path),
+        },
+    )
+
+    assert message is not None
+    assert "COUNT(`orders`.`id`)" in message
+    assert "COUNT(`orders`.`order_no`)" in message
+
+
+def test_count_selection_validation_rejects_count_one_for_multi_table_question(tmp_path) -> None:
+    message = agent_nodes._count_selection_validation_message(
+        (
+            "SELECT COUNT(1) AS `order_count` FROM `orders` "
+            "JOIN `payments` ON `orders`.`order_no` = `payments`.`order_no`;"
+        ),
+        {
+            "question": "订单数量是多少",
+            "relevant_tables": ["orders", "payments"],
+            "schema_catalog": _make_join_repair_catalog(tmp_path),
+        },
+    )
+
+    assert message is not None
+    assert "COUNT(1)" in message
+    assert "COUNT(`orders`.`order_no`)" in message
+
+
+def test_count_selection_validation_allows_explicit_identifier_count() -> None:
+    message = agent_nodes._count_selection_validation_message(
+        "SELECT COUNT(`id`) AS `id_count` FROM `orders`;",
+        {
+            "question": "订单 ID 数量是多少",
+            "relevant_tables": ["orders"],
+            "schema_catalog": _make_count_catalog(),
+        },
+    )
+
+    assert message is None
+
+
 @pytest.mark.anyio
 async def test_agent_graph_repairs_weaker_join_before_execution(tmp_path) -> None:
     llm_service = JoinRepairLLMService()

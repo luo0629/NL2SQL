@@ -1132,7 +1132,7 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
         "LEFT JOIN 过滤规则：如果要保留左表记录，右表筛选条件必须写在 ON 中；不要在 WHERE 中直接筛选右表字段，除非是在表达缺失关联的 right_table.key IS NULL。",
         "SELECT 输出默认优先选择 schema_context 标注的 Preferred SELECT output columns 或 output=business-readable 字段，例如 name/title/amount/status/time/description。",
         "WHERE 字段匹配规则：带 enum_mapping/枚举对照的字段必须使用精确匹配（= 或 IN），匹配值只能来自 schema_context 中该字段的 enum_mapping，禁止编造枚举值。",
-        "COUNT 口径规则：当用户在问数量/条数/多少/统计时，不要默认写 COUNT(`id`) 或其他纯技术主键。若 schema_context 提供 Preferred COUNT expression，优先使用该表达式；若没有更合适的业务字段，优先使用 COUNT(*) 而不是 COUNT(`id`)。",
+        "COUNT 口径规则：当用户在问数量/条数/多少/统计时，先从问题中识别要统计的业务实体，不要默认写 COUNT(`id`)、COUNT(1) 或其他纯技术主键/外键。若 schema_context 提供 Preferred COUNT expression，优先使用最贴近问题主体的表达式；若没有更合适的业务字段，优先使用 COUNT(*) 而不是 COUNT(`id`)。",
         "软删除规则：如果相关表存在 `deleted` 字段，默认查询未删除数据时应添加 `deleted` = 0；当用户明确要求查询已删除/删除记录时使用 `deleted` = 1；当用户明确要求查询全部数据、所有记录或包含已删除数据时，可以不加 `deleted` 过滤。",
         "名称类字符串字段（如 city/城市、name/姓名/客户名、product_name/商品名、title/标题、description/描述等）默认使用 LIKE 模糊匹配，并用通配符包裹用户给出的关键词。",
         "当字段类型或业务含义不确定时，优先使用 LIKE 模糊匹配，不要直接使用等号精确匹配。",
@@ -1374,6 +1374,36 @@ def _preferred_count_strategy(table: SchemaTable, question: str) -> dict[str, st
         "expression": "COUNT(*)",
         "reason": "未识别到稳定的业务计数字段时，优先使用中性的行数统计而不是 COUNT(id)。",
     }
+
+
+def _count_strategy_uses_business_field(strategy: dict[str, str]) -> bool:
+    return strategy["expression"].upper() != "COUNT(*)"
+
+
+def _qualified_count_expression(table: SchemaTable, expression: str) -> str:
+    match = re.fullmatch(r"COUNT\(`([^`]+)`\)", expression, re.IGNORECASE)
+    if not match:
+        return expression
+    return f"COUNT({_qualified_table_name(table)}.{_quote_identifier(match.group(1))})"
+
+
+def _preferred_count_strategy_for_tables(tables: list[SchemaTable], question: str) -> tuple[SchemaTable | None, dict[str, str]]:
+    if not tables:
+        return None, {
+            "expression": "COUNT(*)",
+            "reason": "无法可靠定位统计主体表时，使用中性的 COUNT(*)，避免依赖技术主键。",
+        }
+
+    ranked: list[tuple[float, int, SchemaTable, dict[str, str]]] = []
+    semantics = _catalog_semantics(None)
+    for index, table in enumerate(tables):
+        strategy = _preferred_count_strategy(table, question)
+        score = float(_table_score(question, table, semantics))
+        if _count_strategy_uses_business_field(strategy):
+            score += 100.0
+        ranked.append((score, -index, table, strategy))
+    _score, _index, table, strategy = max(ranked, key=lambda item: (item[0], item[1]))
+    return table, strategy
 
 
 def _render_count_guidance(table: SchemaTable, question: str) -> str:
@@ -1894,31 +1924,66 @@ def _is_technical_count_target(target: str) -> bool:
     return normalized.endswith(".id") or normalized.endswith("_id") or normalized.endswith("._id")
 
 
+def _resolve_count_target_table(target: str, sql: str, table_lookup: dict[str, SchemaTable]) -> SchemaTable | None:
+    parts = _normalize_sql_identifier_path(target)
+    aliases = _extract_sql_table_aliases(sql)
+    if len(parts) == 2:
+        table_ref, _column = parts
+        resolved_table = aliases.get(table_ref.lower(), table_ref)
+        return table_lookup.get(resolved_table) or table_lookup.get(resolved_table.lower())
+    if len(parts) == 3:
+        database_name, table_name, _column = parts
+        resolved_table = f"{database_name}.{table_name}"
+        return table_lookup.get(resolved_table) or table_lookup.get(resolved_table.lower())
+    return None
+
+
+def _relevant_count_tables(state: AgentState, table_lookup: dict[str, SchemaTable]) -> list[SchemaTable]:
+    tables: list[SchemaTable] = []
+    seen: set[str] = set()
+    for table_name in state.get("relevant_tables", []):
+        key = str(table_name).strip()
+        if not key:
+            continue
+        table = table_lookup.get(key) or table_lookup.get(key.lower())
+        if table is None:
+            continue
+        identity = _table_identity(table).lower()
+        if identity in seen:
+            continue
+        seen.add(identity)
+        tables.append(table)
+    return tables
+
+
 def _count_selection_validation_message(sql: str, state: AgentState) -> str | None:
     question = _question_text(state)
     if not _is_count_question(question) or _question_explicitly_requests_identifier(question):
         return None
 
-    relevant_tables = [table for table in state.get("relevant_tables", []) if str(table).strip()]
-    if len(relevant_tables) != 1:
-        return None
-
     catalog = state.get("schema_catalog")
     table_lookup = _build_table_lookup(_catalog_tables(catalog))
-    table = table_lookup.get(relevant_tables[0])
-    if table is None:
-        return None
+    relevant_tables = _relevant_count_tables(state, table_lookup)
 
     count_targets = _extract_plain_count_targets(sql)
     technical_target = next((target for target in count_targets if _is_technical_count_target(target)), None)
     if technical_target is None:
         return None
 
-    strategy = _preferred_count_strategy(table, question)
+    target_table = _resolve_count_target_table(technical_target, sql, table_lookup)
+    if target_table is not None:
+        strategy = _preferred_count_strategy(target_table, question)
+        if len(relevant_tables) > 1 and _count_strategy_uses_business_field(strategy):
+            strategy = {**strategy, "expression": _qualified_count_expression(target_table, strategy["expression"])}
+    else:
+        _table, strategy = _preferred_count_strategy_for_tables(relevant_tables, question)
+        if len(relevant_tables) > 1 and _table is not None and _count_strategy_uses_business_field(strategy):
+            strategy = {**strategy, "expression": _qualified_count_expression(_table, strategy["expression"])}
+
     return (
         "检测到当前统计口径默认依赖了技术主键/技术外键："
         f"COUNT({technical_target})。"
-        "对于当前这类数量问题，请不要盲目使用 COUNT(id)。"
+        "对于当前这类数量问题，请不要盲目使用 COUNT(id) 或 COUNT(1)。"
         f"请优先改为 {strategy['expression']}。"
         f"原因：{strategy['reason']}"
     )
