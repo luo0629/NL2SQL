@@ -237,9 +237,10 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Runtime prompt examples and initialization templates must also stay database-agnostic; do not use `jc_config`, `jc_experimental`, or other retired sample database names as the default fully qualified table examples presented to the model or to users bootstrapping `.env`.
 - `field_examples.yaml` is a lightweight field-disambiguation asset, not a full few-shot SQL template source. When used, it should be filtered by relevant tables and question overlap, and only a small matching subset should be injected into the SQL generation prompt.
 - `field_examples.yaml` is currently a local ignored config asset rather than a version-controlled generated contract file; code must tolerate it being absent.
-- Plain COUNT questions (例如“多少条/数量/个数”) must not blindly default to `COUNT(id)` or other technical primary keys when a closer business-entity field exists.
-- For this MVP, plain COUNT selection should prefer this precedence: business-entity-like field with strong semantic match -> neutral `COUNT(*)` -> technical primary key only as a last resort when no better business count strategy is available.
-- Validator/generation hints may reject or repair `COUNT(id)` for plain business count questions, but this MVP does not expand to full DISTINCT/SUM/AVG aggregate governance.
+- Plain COUNT questions (例如“多少条/数量/个数”) must not blindly default to `COUNT(id)`, `COUNT(table.id)`, `COUNT(alias.id)`, `COUNT(*_id)`, `COUNT(1)`, or other technical primary/foreign-key targets when a closer business-entity field exists.
+- For this MVP, plain COUNT selection should prefer this precedence: question-relevant business-entity field -> neutral `COUNT(*)` -> technical primary key only when the user explicitly asks for ID/code/number counting.
+- Validator/generation hints should reject or repair technical plain-count targets for both single-table and multi-table SQL. Repair guidance should first resolve the count target table from the SQL target/alias; if that is not possible, infer the best relevant business table from question/schema signals; in multi-table SQL, recommended business-field expressions must be table-qualified.
+- This MVP does not expand to full DISTINCT/SUM/AVG aggregate governance.
 - Startup refresh must be schema-driven. Runtime metadata enrichment, table descriptions, enum hints, and startup-generated YAML must not depend on Cangqiong Waimai / `jc_experimental`-specific fallback table names or status mappings as live defaults.
 - Startup refresh should preserve user `overrides` while rebuilding `generated` sections from the current schema.
 - Startup refresh should avoid rewriting YAML files when the rendered content is unchanged.
@@ -269,7 +270,10 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - `field_examples.yaml` contains legacy schema examples unrelated to the current active table scope -> refresh or localize it before prompt injection; do not let stale example tables silently bias generation.
 - `field_examples.yaml` is absent or has no matches for the current question/tables -> omit field-example hints and continue generation normally.
 - Plain COUNT question hits only technical key candidates -> prefer neutral `COUNT(*)` unless a stronger business count field is available.
-- Plain COUNT question is generated as `COUNT(id)` even though a stronger business field is known -> return a structured validation/retry hint for this MVP path.
+- Plain COUNT question is generated as `COUNT(id)`, `COUNT(table.id)`, `COUNT(alias.id)`, `COUNT(*_id)`, or `COUNT(1)` even though a stronger business field is known -> return a structured validation/retry hint before execution.
+- Multi-table plain COUNT repair can resolve the technical target table -> recommend that table's preferred business count expression with a qualified table prefix.
+- Multi-table plain COUNT repair cannot resolve the target table -> infer the best relevant table from question/schema signals and prefer its business count expression; if no reliable business field exists, recommend `COUNT(*)`.
+- User explicitly asks for ID/code/number counting -> do not apply plain-count technical-target repair.
 - Fallback query has no table-level override and no strong semantic time/identifier/metric signal -> fall back to primary key ordering as the deterministic last resort.
 - Fallback query uses a semantic business field for ordering -> append a primary key tie-breaker when available.
 - Table has a `deleted` column and the user asks a normal list/detail query -> default to `deleted = 0`.
@@ -287,8 +291,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 ### 5. Good/Base/Bad Cases
 
 - Good: for a plain count question, generated SQL uses a business-relevant count expression (or `COUNT(*)` when more appropriate) instead of reflexively counting a technical `id` column.
+- Good: for a multi-table plain count question, `COUNT(orders.id)` is repaired toward a qualified business expression such as `COUNT(`orders`.`order_no`)` when `orders.order_no` is the best business entity field.
 - Base: no strong business count field is available, so generation falls back to a neutral plain-count strategy without overstating business semantics.
-- Bad: the model answers every “多少条/数量” question with `COUNT(id)` even when the business entity is represented by a more meaningful field.
+- Bad: the model answers every “多少条/数量” question with `COUNT(id)` or `COUNT(1)` even when the business entity is represented by a more meaningful field.
 
 ### 6. Tests Required
 
@@ -323,6 +328,9 @@ semantics = build_business_semantics(catalog, override_path=settings.business_se
 - Unit/config: the locally maintained `field_examples.yaml` content is aligned to the current active table scope rather than stale `jc_experimental` examples.
 - Unit/count: plain count questions do not regress to `COUNT(id)` when a stronger business field is available.
 - Unit/count: count validation hints can steer `COUNT(id)` toward a better business count expression.
+- Unit/count: multi-table `COUNT(table.id)` / `COUNT(alias.id)` repairs toward the resolved table's qualified business count expression.
+- Unit/count: multi-table `COUNT(1)` repairs toward the best question-relevant business count expression when possible, otherwise `COUNT(*)`.
+- Unit/count: explicit identifier count questions are not blocked by plain-count repair.
 - Unit/count: count prompt guidance is present only for plain COUNT scope, without dragging in full aggregate-governance rules.
 - Unit/fallback-sql: explicit recency intent prefers semantic time fields for `ORDER BY`.
 - Unit/fallback-sql: without explicit time intent, business identifier fields can outrank generic technical timestamps.
@@ -444,14 +452,29 @@ prompt_parts.extend(["field_example_context:", field_example_context or "(无匹
 #### Wrong
 
 ```python
-sql = "SELECT COUNT(`id`) AS total FROM `orders`"
-# Every plain count question falls back to technical id counting.
+sql = "SELECT COUNT(`orders`.`id`) AS total FROM `orders` JOIN `payments` ON ..."
+# Multi-table plain count still depends on the technical primary key.
 ```
 
 #### Correct
 
 ```python
-strategy = _preferred_count_strategy(table, question)
+target_table = _resolve_count_target_table("`orders`.`id`", sql, table_lookup)
+strategy = _preferred_count_strategy(target_table, question)
+sql = f"SELECT COUNT(`orders`.`order_no`) AS total FROM ..."
+```
+
+#### Wrong
+
+```python
+sql = "SELECT COUNT(1) AS total FROM `orders`"
+# COUNT(1) hides the business counting unit from plain count questions.
+```
+
+#### Correct
+
+```python
+_table, strategy = _preferred_count_strategy_for_tables(relevant_tables, question)
 sql = f"SELECT {strategy['expression']} AS total FROM ..."
 ```
 
