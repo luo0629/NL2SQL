@@ -1128,6 +1128,8 @@ def _build_sql_generation_prompt(state: AgentState) -> str:
         "所有表名和字段名必须用反引号包裹。跨数据库或 schema_context 中显示为数据库限定的表，必须使用 MySQL 全限定表名，如 `database_name`.`table_name`。",
         "只能使用 schema_context 中出现的表和字段；业务语义只用于解释同义词、指标、枚举和默认过滤，不能引入未出现在 schema_context 的表字段。",
         "JOIN 规则：优先使用 schema_context 中 Preferred join candidates、Relations、Table Relations、hint、confidence、preferred_score 明确推荐的联表键；若存在 Avoid weaker join candidates 或 governance=suspected_endpoint/deprecated_endpoint，除非用户明确要求，否则不要使用这些联表字段。",
+        "JOIN 类型规则：先识别用户问题的主查询对象；当用户表达所有/每个/全部/列表并附带/包含没有/未关联/缺失等保留主表语义时，使用 LEFT JOIN；当用户表达有/存在/关联到/匹配/只看已产生等存在性语义时，使用 INNER JOIN。",
+        "LEFT JOIN 过滤规则：如果要保留左表记录，右表筛选条件必须写在 ON 中；不要在 WHERE 中直接筛选右表字段，除非是在表达缺失关联的 right_table.key IS NULL。",
         "SELECT 输出默认优先选择 schema_context 标注的 Preferred SELECT output columns 或 output=business-readable 字段，例如 name/title/amount/status/time/description。",
         "WHERE 字段匹配规则：带 enum_mapping/枚举对照的字段必须使用精确匹配（= 或 IN），匹配值只能来自 schema_context 中该字段的 enum_mapping，禁止编造枚举值。",
         "COUNT 口径规则：当用户在问数量/条数/多少/统计时，不要默认写 COUNT(`id`) 或其他纯技术主键。若 schema_context 提供 Preferred COUNT expression，优先使用该表达式；若没有更合适的业务字段，优先使用 COUNT(*) 而不是 COUNT(`id`)。",
@@ -1727,6 +1729,79 @@ def _resolve_sql_operand_table(parts: tuple[str, ...], aliases: dict[str, str]) 
     return None
 
 
+def _extract_where_clause(sql: str) -> str:
+    match = re.search(
+        r"\bwhere\b(?P<body>.*?)(?=\bgroup\s+by\b|\border\s+by\b|\blimit\b|\bhaving\b|$)",
+        sql,
+        re.IGNORECASE | re.DOTALL,
+    )
+    return match.group("body") if match else ""
+
+
+def _left_join_right_ref_keys(sql: str) -> set[str]:
+    table_atom = r"(?:`[^`]+`|[A-Za-z_][\w$]*)(?:\s*\.\s*(?:`[^`]+`|[A-Za-z_][\w$]*))?"
+    pattern = re.compile(
+        rf"\bleft\s+(?:outer\s+)?join\s+({table_atom})(?:\s+(?:as\s+)?)?(`[^`]+`|[A-Za-z_][\w$]*)?\s+\bon\b",
+        re.IGNORECASE,
+    )
+    keys: set[str] = set()
+    for match in pattern.finditer(sql):
+        table_parts = _normalize_sql_identifier_path(match.group(1))
+        if len(table_parts) == 1:
+            qualified_table = table_parts[0]
+            short_name = table_parts[0]
+        elif len(table_parts) == 2:
+            qualified_table = f"{table_parts[0]}.{table_parts[1]}"
+            short_name = table_parts[1]
+        else:
+            continue
+        keys.add(qualified_table.lower())
+        keys.add(short_name.lower())
+        raw_alias = match.group(2)
+        if raw_alias:
+            alias = _strip_identifier_quotes(raw_alias)
+            if alias.lower() not in {"on", "where", "left", "right", "inner", "outer", "group", "order", "limit"}:
+                keys.add(alias.lower())
+    return keys
+
+
+def _left_join_where_collapse_message(sql: str) -> str | None:
+    right_ref_keys = _left_join_right_ref_keys(sql)
+    if not right_ref_keys:
+        return None
+    where_clause = _extract_where_clause(sql)
+    if not where_clause:
+        return None
+
+    operand_pattern = re.compile(
+        r"((?:`[^`]+`|[A-Za-z_][\w$]*)(?:\s*\.\s*(?:`[^`]+`|[A-Za-z_][\w$]*)){1,2})",
+        re.IGNORECASE,
+    )
+    for match in operand_pattern.finditer(where_clause):
+        parts = _normalize_sql_identifier_path(match.group(1))
+        if len(parts) == 2:
+            table_ref, column = parts
+            ref_key = table_ref.lower()
+            ref_label = f"{table_ref}.{column}"
+        elif len(parts) == 3:
+            database_name, table_name, column = parts
+            ref_key = f"{database_name}.{table_name}".lower()
+            ref_label = f"{database_name}.{table_name}.{column}"
+        else:
+            continue
+        if ref_key not in right_ref_keys:
+            continue
+        suffix = where_clause[match.end():]
+        if re.match(r"\s+is\s+null\b", suffix, re.IGNORECASE):
+            continue
+        return (
+            "检测到 LEFT JOIN 右表字段出现在 WHERE 中，可能把 LEFT JOIN 语义退化为 INNER JOIN："
+            f"{ref_label}。如果需要保留左表记录，请把右表筛选条件移入对应 ON 子句；"
+            "如果用户明确只需要存在匹配记录，请改用 INNER JOIN；如果查询缺失关联，仅允许在 WHERE 中使用右表关键字段 IS NULL。"
+        )
+    return None
+
+
 def _extract_join_equalities(sql: str) -> list[tuple[str, str, str, str]]:
     aliases = _extract_sql_table_aliases(sql)
     comparison_pattern = re.compile(
@@ -1866,6 +1941,9 @@ async def sql_validator(state: AgentState, validator: SQLValidator, executor: SQ
         join_message = _best_alternative_join_message(sql, state.get("schema_catalog"))
         if join_message:
             raise DangerousSQLError(join_message)
+        left_join_message = _left_join_where_collapse_message(sql)
+        if left_join_message:
+            raise DangerousSQLError(left_join_message)
         count_message = _count_selection_validation_message(sql, state)
         if count_message:
             raise DangerousSQLError(count_message)

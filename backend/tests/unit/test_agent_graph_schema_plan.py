@@ -551,6 +551,8 @@ def test_sql_generation_prompt_guides_field_matching_rules() -> None:
     assert "带 enum_mapping/枚举对照的字段必须使用精确匹配" in prompt
     assert "匹配值只能来自 schema_context 中该字段的 enum_mapping" in prompt
     assert "JOIN 规则：优先使用 schema_context 中 Preferred join candidates、Relations、Table Relations、hint、confidence、preferred_score 明确推荐的联表键" in prompt
+    assert "JOIN 类型规则：先识别用户问题的主查询对象" in prompt
+    assert "右表筛选条件必须写在 ON 中" in prompt
     assert "名称类字符串字段" in prompt
     assert "默认使用 LIKE 模糊匹配" in prompt
     assert "字段类型或业务含义不确定时，优先使用 LIKE" in prompt
@@ -561,6 +563,49 @@ def test_sql_generation_prompt_guides_field_matching_rules() -> None:
     assert "`database_name`.`table_name`" in prompt
     assert "`jc_config`.`table`" not in prompt
     assert "`jc_experimental`.`table`" not in prompt
+
+
+def test_left_join_where_collapse_message_rejects_right_table_filter() -> None:
+    sql = (
+        "SELECT `customers`.`name`, `orders`.`amount` "
+        "FROM `customers` LEFT JOIN `orders` ON `customers`.`id` = `orders`.`customer_id` "
+        "WHERE `orders`.`status` = 'paid' ORDER BY `customers`.`id` DESC LIMIT 20"
+    )
+
+    message = agent_nodes._left_join_where_collapse_message(sql)
+
+    assert message is not None
+    assert "LEFT JOIN 右表字段出现在 WHERE" in message
+    assert "orders.status" in message
+
+
+def test_left_join_where_collapse_message_allows_missing_association_check() -> None:
+    sql = (
+        "SELECT `customers`.`name` FROM `customers` "
+        "LEFT JOIN `orders` AS `o` ON `customers`.`id` = `o`.`customer_id` "
+        "WHERE `o`.`id` IS NULL ORDER BY `customers`.`id` DESC LIMIT 20"
+    )
+
+    assert agent_nodes._left_join_where_collapse_message(sql) is None
+
+
+@pytest.mark.anyio
+async def test_sql_validator_retries_left_join_right_table_where_filter() -> None:
+    state = {
+        "generated_sql": (
+            "SELECT `customers`.`name`, `o`.`amount` FROM `customers` "
+            "LEFT JOIN `orders` AS `o` ON `customers`.`id` = `o`.`customer_id` "
+            "WHERE `o`.`status` = 'paid' ORDER BY `customers`.`id` DESC LIMIT 20"
+        ),
+        "retry_count": 0,
+        "max_retries": 3,
+    }
+
+    result = await agent_nodes.sql_validator(state, SQLValidator(), StubSQLExecutor())
+
+    assert result["retry_count"] == 1
+    assert "LEFT JOIN 右表字段出现在 WHERE" in result["validation_error"]
+    assert result["validation_issues"][0]["repairable"] is True
 
 
 def test_schema_context_exposes_preferred_count_expression_for_count_questions() -> None:
