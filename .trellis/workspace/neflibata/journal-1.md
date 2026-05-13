@@ -817,3 +817,36 @@ Improved plain COUNT selection so count queries no longer default to technical i
 ### Next Steps
 
 - None - task complete
+
+
+## Session 25: Safe JOIN strategy validation
+
+**Date**: 2026-05-13
+**Task**: Safe JOIN strategy validation
+**Branch**: `main`
+
+### Summary
+
+Implemented safer NL2SQL JOIN type guidance and validator retry for LEFT JOIN right-table WHERE filters.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `63e3fc7` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
